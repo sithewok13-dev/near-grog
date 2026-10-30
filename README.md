@@ -26,3 +26,5 @@ You need your own copies of the games. Near-Grog never includes game files.
    short loops above the text, starting with Zork I.
 4. **The Fool's Errand, DOS colour version** (1989): a new engine, after Dark Lord.
    ScummVM's existing `fool` engine covers the Mac versions.
+5. **The Transylvania games:** both C64 versions of Transylvania, The Crimson Crown,
+   and Transylvania III for PC.
