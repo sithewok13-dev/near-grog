@@ -1,6 +1,6 @@
 # Near-Grog
 
-Near-Grog is a private fork of [ScummVM](https://www.scummvm.org), named after the
+Near-Grog is an unofficial fork of [ScummVM](https://www.scummvm.org), named after the
 watered-down grog in *Monkey Island 2*: not the real thing, but it'll do.
 
 It's the home for new engines for forgotten adventure games, optional enhancement

@@ -19,10 +19,6 @@ permissions:
   contents: write
 
 env:
-  # The repo is private, so macOS minutes are limited: build only these engines.
-  # scumm (+ scumm_7_8, he): the LucasArts games. glk: Infocom (Zork) and other
-  # text adventures, including the Comprehend games such as Transylvania.
-  ENGINES: scumm,scumm_7_8,he,glk
   BUNDLE_ID: io.github.sithewok13.neargrog
   APP_NAME: Near-Grog
   LIBS_URL: https://downloads.scummvm.org/frs/build/scummvm-ios7-libs-v4.zip
@@ -51,7 +47,7 @@ jobs:
       - name: Generate the Xcode project
         run: |
           ./devtools/create_project/xcode/build/Release/create_project . --xcode \
-            --disable-all-engines --enable-engine="$ENGINES" \
+            --enable-all-engines \
             --ios --use-xcframework --enable-faad --enable-gif --enable-mikmod \
             --enable-vpx --enable-mpc --enable-a52 --disable-taskbar --disable-tts
 
@@ -101,6 +97,6 @@ jobs:
             --title "Near-Grog for iOS (latest test build)" \
             --notes "Test build from commit ${GITHUB_SHA::7}. It may be broken or untested.
 
-          Engines in this build: $ENGINES.
+          Includes every ScummVM engine, among them Grim Fandango, Escape from Monkey Island and The Fool's Errand (Mac).
 
           Install: sideload \`$APP_NAME-ios.ipa\` (for example with Feather). Bring your own game files."

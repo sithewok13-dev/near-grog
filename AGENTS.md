@@ -1,6 +1,6 @@
 # Working in Near-Grog
 
-Near-Grog is the owner's private fork of ScummVM. It is a separate project with its
+Near-Grog is the owner's unofficial fork of ScummVM (public since 2026-10-30). It is a separate project with its
 own rules, which replace ScummVM's `AGENTS.md` here.
 
 ScummVM's [AI-GUIDELINES.md](AI-GUIDELINES.md) governs contributions **to official
@@ -43,9 +43,8 @@ is Near-Grog's own (`README.md`, `AGENTS.md`, `CLAUDE.md`, `devtools/near-grog/`
 `.github/workflows/near-grog-ios.yml` builds the iPhone app on every push to
 `main` that changes code, and publishes `Near-Grog-ios.ipa` (unsigned, for
 sideloading) to the `ios-latest` prerelease. **Pushing to `main` publishes a test
-build.** The repo is private, so macOS build minutes are limited: the build only
-includes the engines listed in the workflow's `ENGINES` line. Add engines there
-when they're needed.
+build.** The build includes every ScummVM engine plus Near-Grog's own; the repo is
+public, so GitHub's standard runners are free.
 
 ## Related notes
 
