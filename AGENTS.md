@@ -9,8 +9,9 @@ this repo. Respect ScummVM's rules in spirit:
 
 - **Never open pull requests, issues or patches against scummvm/scummvm** from this
   repo, and never present Near-Grog work as ScummVM's.
-- **Say it's AI-built.** Add an `Assisted-by:` line to commit messages, in the
-  format AI-GUIDELINES.md describes.
+- **Say it's AI-built.** End commit messages with `Assisted-by: Claude`, plus
+  the attribution lines the session provides. Don't name AI models anywhere else:
+  code, comments, docs or notes.
 
 ## Rules for this repo
 
@@ -34,7 +35,17 @@ The repo holds a snapshot of ScummVM, not its full history (the history is over
 from. To update, run `devtools/near-grog/sync-upstream.sh`: it applies the changes
 between the recorded commit and ScummVM's latest `master` on top of Near-Grog, then
 records the new commit. Resolve any conflicts in favour of upstream unless the file
-is Near-Grog's own (`README.md`, `AGENTS.md`, `CLAUDE.md`, `devtools/near-grog/`).
+is Near-Grog's own (`README.md`, `AGENTS.md`, `CLAUDE.md`, `devtools/near-grog/`,
+`.github/workflows/`). Near-Grog runs its own CI, not ScummVM's.
+
+## iOS builds
+
+`.github/workflows/near-grog-ios.yml` builds the iPhone app on every push to
+`main` that changes code, and publishes `Near-Grog-ios.ipa` (unsigned, for
+sideloading) to the `ios-latest` prerelease. **Pushing to `main` publishes a test
+build.** The repo is private, so macOS build minutes are limited: the build only
+includes the engines listed in the workflow's `ENGINES` line. Add engines there
+when they're needed.
 
 ## Related notes
 

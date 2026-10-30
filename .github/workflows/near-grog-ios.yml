@@ -1,0 +1,106 @@
+# Near-Grog iPhone build.
+# Every code push to main builds the app and publishes Near-Grog-ios.ipa
+# (unsigned, for sideloading) to the ios-latest prerelease.
+name: iOS
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'doc/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  # The repo is private, so macOS minutes are limited: build only these engines.
+  # scumm (+ scumm_7_8, he): the LucasArts games. glk: Infocom (Zork) and other
+  # text adventures, including the Comprehend games such as Transylvania.
+  ENGINES: scumm,scumm_7_8,he,glk
+  BUNDLE_ID: io.github.sithewok13.neargrog
+  APP_NAME: Near-Grog
+  LIBS_URL: https://downloads.scummvm.org/frs/build/scummvm-ios7-libs-v4.zip
+
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download ScummVM's prebuilt iOS libraries
+        run: |
+          curl -fL -o libs.zip "$LIBS_URL"
+          unzip -q libs.zip
+
+      - name: Build create_project
+        run: |
+          cd devtools/create_project/xcode
+          xcodebuild -quiet
+
+      - name: Generate the Xcode project
+        run: |
+          ./devtools/create_project/xcode/build/Release/create_project . --xcode \
+            --disable-all-engines --enable-engine="$ENGINES" \
+            --ios --use-xcframework --enable-faad --enable-gif --enable-mikmod \
+            --enable-vpx --enable-mpc --enable-a52 --disable-taskbar --disable-tts
+
+      - name: Build cache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ios
+          max-size: 1G
+          create-symlink: true
+
+      - name: Build the app
+        run: |
+          set -o pipefail
+          xcodebuild CC=clang CPLUSPLUS=clang++ LD=clang LDPLUSPLUS=clang++ build \
+            -project scummvm.xcodeproj -scheme ScummVM-iOS -configuration Release \
+            -sdk iphoneos -derivedDataPath build/dd \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            | awk '$1 !~ /^(export|cd|clang|clang\+\+)/'
+
+      - name: Package the IPA
+        run: |
+          APP=$(find build/dd/Build/Products -maxdepth 2 -name '*.app' -type d | head -1)
+          test -n "$APP" || { echo "No .app was built"; exit 1; }
+          PLIST="$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleDisplayName" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_NAME" "$PLIST"
+          mkdir -p ipa/Payload
+          cp -R "$APP" ipa/Payload/
+          (cd ipa && zip -qry "../$APP_NAME-ios.ipa" Payload)
+          ls -lh "$APP_NAME-ios.ipa"
+
+      - name: Keep the IPA as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-ios
+          path: ${{ env.APP_NAME }}-ios.ipa
+
+      - name: Publish to ios-latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete ios-latest --cleanup-tag --yes 2>/dev/null || true
+          gh release create ios-latest "$APP_NAME-ios.ipa" \
+            --prerelease --latest=false --target "$GITHUB_SHA" \
+            --title "Near-Grog for iOS (latest test build)" \
+            --notes "Test build from commit ${GITHUB_SHA::7}. It may be broken or untested.
+
+          Engines in this build: $ENGINES.
+
+          Install: sideload \`$APP_NAME-ios.ipa\` (for example with Feather). Bring your own game files."

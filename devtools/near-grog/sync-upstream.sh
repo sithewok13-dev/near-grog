@@ -17,7 +17,7 @@ fi
 
 # Near-Grog's own copies of these files win; README.md is upstream's README,
 # which Near-Grog keeps at doc/README-ScummVM.md.
-git diff --binary "$OLD" "$NEW" -- . ':(exclude)AGENTS.md' ':(exclude)CLAUDE.md' ':(exclude)README.md' > /tmp/near-grog-upstream.diff
+git diff --binary "$OLD" "$NEW" -- . ':(exclude)AGENTS.md' ':(exclude)CLAUDE.md' ':(exclude)README.md' ':(exclude).github/workflows' > /tmp/near-grog-upstream.diff
 git diff --binary "$OLD" "$NEW" -- README.md | sed 's#a/README.md#a/doc/README-ScummVM.md#; s#b/README.md#b/doc/README-ScummVM.md#' >> /tmp/near-grog-upstream.diff
 
 git apply --3way --index /tmp/near-grog-upstream.diff
