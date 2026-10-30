@@ -1,0 +1,837 @@
+/* ScummVM - Graphic Adventure Engine
+ *
+ * ScummVM is the legal property of its developers, whose names
+ * are too numerous to list here. Please refer to the COPYRIGHT
+ * file distributed with this source distribution.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+#include "common/algorithm.h"
+#include "mm/mm1/data/character.h"
+#include "mm/mm1/data/locations.h"
+#include "mm/shared/utils/strings.h"
+#include "mm/mm1/mm1.h"
+
+namespace MM {
+namespace MM1 {
+
+static const int CLASS_HP_PER_LEVEL[6] = {
+	12, 10, 10, 8, 6, 8
+};
+
+Resistances::Resistances() {
+	for (int i = 0; i < 8; ++i)
+		_arr[i].clear();
+}
+
+void Resistances::synchronize(Common::Serializer &s) {
+	for (int i = 0; i < 8; ++i)
+		_arr[i].synchronize(s);
+}
+
+size_t Resistances::getPerformanceTotal() const {
+	size_t total = 0;
+	for (int i = 0; i < 8; ++i)
+		total += _arr[i].getPerformanceTotal();
+	return total;
+}
+
+void Inventory::clear() {
+	_items.clear();
+	_items.resize(INVENTORY_COUNT);
+}
+
+void Inventory::synchronize(Common::Serializer &s, bool ids) {
+	for (int i = 0; i < INVENTORY_COUNT; ++i)
+		s.syncAsByte(ids ? _items[i]._id : _items[i]._charges);
+}
+
+bool Inventory::empty() const {
+	for (uint i = 0; i < INVENTORY_COUNT; ++i) {
+		if (_items[i])
+			return false;
+	}
+	return true;
+}
+
+bool Inventory::full() const {
+	for (uint i = 0; i < INVENTORY_COUNT; ++i) {
+		if (!_items[i])
+			return false;
+	}
+	return true;
+}
+
+uint Inventory::size() const {
+	for (int i = INVENTORY_COUNT - 1; i >= 0; --i) {
+		if (_items[i])
+			return i + 1;
+	}
+	return 0;
+}
+
+uint Inventory::add(byte id, byte charges) {
+	uint idx = getFreeSlot();
+	_items[idx]._id = id;
+	_items[idx]._charges = charges;
+
+	return idx;
+}
+
+int Inventory::getFreeSlot() const {
+	for (uint i = 0; i < INVENTORY_COUNT; ++i) {
+		if (!_items[i])
+			return i;
+	}
+
+	error("Inventory is full");
+	return -1;
+}
+
+
+void Inventory::removeAt(uint idx) {
+	_items.remove_at(idx);
+	_items.push_back(Entry());
+}
+
+void Inventory::remove(Entry *e) {
+	int index = indexOf(e);
+	assert(index >= 0);
+	removeAt(index);
+}
+
+int Inventory::indexOf(Entry *e) const {
+	for (uint i = 0; i < INVENTORY_COUNT; ++i) {
+		if (e == &_items[i])
+			return i;
+	}
+
+	return -1;
+}
+
+int Inventory::indexOf(byte itemId) const {
+	for (uint i = 0; i < INVENTORY_COUNT; ++i) {
+		if (_items[i]._id == itemId)
+			return i;
+	}
+
+	return -1;
+}
+
+bool Inventory::hasCategory(CategoryFn fn) const {
+	for (uint i = 0; i < INVENTORY_COUNT; ++i) {
+		if (fn(_items[i]._id))
+			return true;
+	}
+	return false;
+}
+
+void Inventory::removeCharge(Entry *e) {
+	if (e->_charges) {
+		if (--e->_charges == 0)
+			remove(e);
+	}
+}
+
+size_t Inventory::getPerformanceTotal() const {
+	size_t total = 0;
+	for (uint i = 0; i < size(); ++i)
+		total += (size_t)(*this)[i]._id + (size_t)(*this)[i]._charges;
+
+	return total;
+}
+
+/*------------------------------------------------------------------------*/
+
+Character::Character() : PrimaryAttributes() {
+	Common::fill(&_flags[0], &_flags[14], 0);
+}
+
+void Character::synchronize(Common::Serializer &s, int portraitNum) {
+	char name[16];
+	if (s.isSaving()) {
+		// Save the name in uppercase to match original
+		Common::strlcpy(name, uppercase(_name).c_str(), 16);
+		s.syncBytes((byte *)name, 16);
+	} else {
+		s.syncBytes((byte *)name, 16);
+		name[15] = '\0';
+
+		if (g_engine->isEnhanced())
+			Common::strlcpy(_name, camelCase(name).c_str(), 16);
+		else
+			Common::strlcpy(_name, uppercase(name).c_str(), 16);
+	}
+
+	s.syncAsByte(_sex);
+	s.syncAsByte(_alignmentInitial);
+	s.syncAsByte(_alignment);
+	s.syncAsByte(_race);
+	s.syncAsByte(_class);
+
+	_intelligence.synchronize(s);
+	_might.synchronize(s);
+	_personality.synchronize(s);
+	_endurance.synchronize(s);
+	_speed.synchronize(s);
+	_accuracy.synchronize(s);
+	_luck.synchronize(s);
+	_level.synchronize(s);
+	s.syncAsByte(_age);
+	s.syncAsByte(_ageDayCtr);
+
+	s.syncAsUint32LE(_exp);
+	s.syncAsUint16LE(_sp._current);
+	s.syncAsUint16LE(_sp._base);
+	_spellLevel.synchronize(s);
+
+	s.syncAsUint16LE(_gems);
+	s.syncAsUint16LE(_hpCurrent);
+	s.syncAsUint16LE(_hp);
+	s.syncAsUint16LE(_hpMax);
+
+	// Gold field is annoying by being 3 bytes
+	uint goldLo = _gold & 0xffff;
+	uint goldHi = _gold >> 16;
+	s.syncAsUint16LE(goldLo);
+	s.syncAsByte(goldHi);
+	if (s.isLoading())
+		_gold = goldLo | (goldHi << 16);
+
+	_ac.synchronize(s);
+	s.syncAsByte(_food);
+	s.syncAsByte(_condition);
+
+	_equipped.synchronize(s, true);
+	_backpack.synchronize(s, true);
+	_equipped.synchronize(s, false);
+	_backpack.synchronize(s, false);
+
+	_resistances.synchronize(s);
+	_physicalAttr.synchronize(s);
+	_missileAttr.synchronize(s);
+
+	s.syncAsByte(_trapCtr);
+	s.syncAsByte(_quest);
+	s.syncAsByte(_worthiness);
+	s.syncAsByte(_alignmentCtr);
+	s.syncBytes(_flags, 14);
+
+	s.syncAsByte(_portrait);
+	if (s.isLoading()) {
+		if (portraitNum != -1)
+			_portrait = portraitNum;
+		if (_portrait >= NUM_PORTRAITS)
+			// Ensure portrait number is valid
+			_portrait = 0;
+	}
+
+	if (s.isLoading())
+		loadFaceSprites();
+}
+
+void Character::loadFaceSprites() {
+	if (_portrait != 0xff && g_engine->isEnhanced()) {
+		Common::Path cname(Common::String::format("char%02d.fac",
+			_portrait * 2 + (_sex == MALE ? 0 : 1) + 1));
+		_faceSprites.load(cname);
+	}
+}
+
+void Character::clear() {
+	Common::fill(_name, _name + 16, 0);
+	_sex = (Sex)0;
+	_alignmentInitial = (Alignment)0;
+	_alignment = (Alignment)0;
+	_race = (Race)0;
+	_class = (CharacterClass)0;
+	_intelligence = _might = _personality = _endurance = 0;
+	_speed = _accuracy = _luck = 0;
+	_level = 1;
+	// MM1 characters begin at age 18.
+	_age = 18;
+	_ageDayCtr = 0;
+	_exp = 0;
+	_sp = 0;
+	_spellLevel = 0;
+	_gems = 0;
+	_hpCurrent = _hp = _hpMax = 0;
+	_gold = 0;
+	_ac = 0;
+	_food = 0;
+	_condition = 0;
+	_quest = 0;
+	_equipped.clear();
+	_backpack.clear();
+
+	_alignmentInitial = GOOD;
+	_alignment = GOOD;
+	_resistances._s._magic.clear();
+	_resistances._s._fear.clear();
+	_resistances._s._poison.clear();
+	_resistances._s._psychic.clear();
+	_trapCtr = _alignmentCtr = 0;
+
+	Common::fill(&_flags[0], &_flags[8], 0);
+}
+
+
+void Character::gatherGold() {
+	// Gold is stored in the original MM1 24-bit range. Move as much as
+	// possible to this character and leave any overflow with its owner.
+	static const uint32 MAX_GOLD = 0xffffff;
+
+	if (_gold >= MAX_GOLD)
+		return;
+
+	for (uint i = 0; i < g_globals->_party.size(); ++i) {
+		Character &src = g_globals->_party[i];
+		if (&src == this)
+			continue;
+
+		const uint32 room = MAX_GOLD - _gold;
+		const uint32 amount = MIN(src._gold, room);
+		_gold += amount;
+		src._gold -= amount;
+
+		if (_gold == MAX_GOLD)
+			break;
+	}
+}
+
+void Character::gatherResources() {
+	// Original Character Profile G: gather gold, gems and food, each only up
+	// to the destination character's carrying limit. Any excess stays with
+	// the source character instead of being destroyed.
+	gatherGold();
+
+	for (uint i = 0; i < g_globals->_party.size(); ++i) {
+		Character &src = g_globals->_party[i];
+		if (&src == this)
+			continue;
+
+		if (_gems < 0xffff) {
+			const uint32 room = 0xffff - _gems;
+			const uint32 amount = MIN<uint32>(src._gems, room);
+			_gems += amount;
+			src._gems -= amount;
+		}
+
+		if (_food < MAX_FOOD) {
+			const uint room = MAX_FOOD - _food;
+			const uint amount = MIN<uint>(src._food, room);
+			_food += amount;
+			src._food -= amount;
+		}
+
+		if (_gems == 0xffff && _food == MAX_FOOD)
+			break;
+	}
+}
+
+Character::TradeResult Character::trade(int whoTo, int itemIndex) {
+	Character &dest = g_globals->_party[whoTo];
+	if (&dest == this)
+		return TRADE_SUCCESS;
+
+	if (dest._backpack.full())
+		return TRADE_FULL;
+	if (!_backpack[itemIndex])
+		return TRADE_NO_ITEM;
+
+	Inventory::Entry e = _backpack[itemIndex];
+	_backpack.removeAt(itemIndex);
+	dest._backpack.add(e._id, e._charges);
+
+	return TRADE_SUCCESS;
+}
+
+Character::LevelIncrease Character::increaseLevel() {
+	++_level;
+	++_age;
+	if (_age > 220)
+		_age = 220;
+	_trapCtr += 2;
+
+	int classNum = _class == NONE ? ROBBER : _class;
+	int newHP = g_engine->getRandomNumber(CLASS_HP_PER_LEVEL[classNum - 1]);
+
+	if (_endurance._base >= 40)
+		newHP += 10;
+	else if (_endurance._base >= 35)
+		newHP += 9;
+	else if (_endurance._base >= 30)
+		newHP += 8;
+	else if (_endurance._base >= 27)
+		newHP += 7;
+	else if (_endurance._base >= 24)
+		newHP += 6;
+	else if (_endurance._base >= 21)
+		newHP += 5;
+	else if (_endurance._base >= 19)
+		newHP += 4;
+	else if (_endurance._base >= 17)
+		newHP += 3;
+	else if (_endurance._base >= 15)
+		newHP += 2;
+	else if (_endurance._base >= 13)
+		newHP += 1;
+	else if (_endurance._base >= 9)
+		newHP += 0;
+	else if (_endurance._base >= 7)
+		newHP = MAX(newHP - 1, 1);
+	else if (_endurance._base >= 5)
+		newHP = MAX(newHP - 2, 1);
+	else
+		newHP = MAX(newHP - 3, 1);
+
+	_hpCurrent += newHP;
+	_hp = _hpMax = _hpCurrent;
+
+	int gainedSpells = 0;
+
+	// Clerics and Sorcerers gain a spell level at character levels
+	// 3, 5, 7, 9, 11 and 13, up to spell level 7.
+	if (_class == CLERIC || _class == SORCERER) {
+		if (_level._base >= 3 && _level._base <= 13 &&
+				(_level._base & 1))
+			gainedSpells = (_level._base + 1) / 2;
+
+	// Paladins and Archers begin casting at character level 7 and
+	// gain another spell level at 9, 11 and 13, up to spell level 4.
+	} else if (_class == PALADIN || _class == ARCHER) {
+		if (_level._base >= 7 && _level._base <= 13 &&
+				(_level._base & 1))
+			gainedSpells = (_level._base - 5) / 2;
+	}
+
+	if (gainedSpells) {
+		_spellLevel = gainedSpells;
+		updateSP();
+	}
+
+	LevelIncrease result;
+	result._numHP = newHP;
+	result._numSpells = gainedSpells;
+	return result;
+}
+
+Character::BuyResult Character::buyItem(byte itemId) {
+	// Check if backpack is full
+	if (_backpack.full())
+		return BUY_BACKPACK_FULL;
+
+	// Check character has enough gold
+	g_globals->_items.getItem(itemId);
+	Item &item = g_globals->_currItem;
+	if (_gold < item._cost)
+		return BUY_NOT_ENOUGH_GOLD;
+
+	// Add the item
+	_gold -= item._cost;
+	_backpack.add(itemId, item._maxCharges);
+
+	return BUY_SUCCESS;
+}
+
+void Character::updateAttributes() {
+	_intelligence.reset();
+	_might.reset();
+	_personality.reset();
+	_endurance.reset();
+	_speed.reset();
+	_personality.reset();
+	_endurance.reset();
+	_speed.reset();
+	_accuracy.reset();
+	_luck.reset();
+	_level.reset();
+	_spellLevel.reset();
+}
+
+void Character::updateAC() {
+	// Leather Skin stores the caster's current level as a party-wide
+	// AC bonus. Rebuild current AC from base so repeated updates do not stack.
+	int ac = _ac._base +
+		g_globals->_activeSpells._s.leather_skin;
+
+	if (_speed >= 40)
+		ac += 9;
+	else if (_speed >= 35)
+		ac += 8;
+	else if (_speed >= 30)
+		ac += 7;
+	else if (_speed >= 25)
+		ac += 6;
+	else if (_speed >= 21)
+		ac += 5;
+	else if (_speed >= 19)
+		ac += 4;
+	else if (_speed >= 17)
+		ac += 3;
+	else if (_speed >= 15)
+		ac += 2;
+	else if (_speed >= 13)
+		ac += 1;
+	else if (_speed >= 9)
+		ac += 0;
+	else if (_speed >= 7)
+		ac = MAX(ac - 1, 0);
+	else if (_speed >= 5)
+		ac = MAX(ac - 2, 0);
+	else
+		ac = MAX(ac - 3, 0);
+
+	_ac._current = ac;
+}
+
+void Character::updateSP() {
+	int intelligence = _intelligence._current;
+	int personality = _personality._current;
+	int level = _level._current;
+	int index = 3;
+	AttributePair16 newSP;
+
+	// Spell points only relevant for spell casters
+	if (_spellLevel._current) {
+		int threshold = -1;
+		if (_class == CLERIC)
+			threshold = personality;
+		else if (_class == SORCERER)
+			threshold = intelligence;
+		else if (level < 7)
+			threshold = -1;
+		else {
+			level -= 6;
+			threshold = (_class == PALADIN) ?
+				personality : intelligence;
+		}
+
+		if (threshold >= 40)
+			index += 10;
+		else if (threshold >= 35)
+			index += 9;
+		else if (threshold >= 30)
+			index += 8;
+		else if (threshold >= 27)
+			index += 7;
+		else if (threshold >= 24)
+			index += 6;
+		else if (threshold >= 21)
+			index += 5;
+		else if (threshold >= 19)
+			index += 4;
+		else if (threshold >= 17)
+			index += 3;
+		else if (threshold >= 15)
+			index += 2;
+		else if (threshold >= 13)
+			index += 1;
+		else if (threshold < 5)
+			index -= 3;
+		else if (threshold < 7)
+			index -= 2;
+		else if (threshold < 9)
+			index -= 1;
+
+		// Calculate the SP
+		newSP._base += index * level;
+		newSP._current = newSP._base;
+	}
+
+	// Set the character's new SP
+	_sp = newSP;
+}
+
+void Character::updateResistances() {
+	for (int i = 0; i < 8; ++i)
+		_resistances._arr[i]._current = _resistances._arr[i]._base;
+}
+
+Common::String Character::getConditionString() const {
+	Common::String result;
+	int cond = _condition;
+
+	if (cond == 0) {
+		result += "Good";
+	} else if (cond == ERADICATED) {
+		result += "Eradicated";
+	} else {
+		if (cond & BAD_CONDITION) {
+			// Fatal conditions
+			if (cond & DEAD)
+				result += "Dead,";
+			if (cond & STONE)
+				result += "Stone,";
+		} else {
+			if (cond & UNCONSCIOUS)
+				result += "Unconscious,";
+			if (cond & PARALYZED)
+				result += "Paralyzed,";
+			if (cond & POISONED)
+				result += "Poisoned,";
+			if (cond & DISEASED)
+				result += "Diseased,";
+			if (cond & SILENCED)
+				result += "Silenced,";
+			if (cond & BLINDED)
+				result += "Blinded,";
+			if (cond & ASLEEP)
+				result += "Asleep,";
+		}
+
+		result.deleteLastChar();
+	}
+
+	return result;
+}
+
+void Character::rest() {
+	// Characters with a bad condition like
+	// being stoned can't rest
+	if (_condition & BAD_CONDITION)
+		return;
+
+	// Restore temporary attribute and level drains before recalculating
+	// maximum SP. Food and disease still determine recovery below.
+	const int currentSP = _sp._current;
+	updateAttributes();
+	updateSP();
+	_sp._current = MIN(currentSP, (int)_sp._base);
+
+	updateAC();
+	updateResistances();
+
+	_condition &= ~(ASLEEP | BLINDED | SILENCED |
+		PARALYZED | UNCONSCIOUS);
+
+	if (_hpCurrent == 0)
+		_hpCurrent = 1;
+
+	// Increment the day counter. When it overflows,
+	// it's time to increment the character's age by a year
+	if (_ageDayCtr++ > 255) {
+		_ageDayCtr = 0;
+		if (_age < 255)
+			++_age;
+	}
+
+	if ((g_engine->getRandomNumber(70) + 80) < _age) {
+		// Older characters have a chance of falling unconscious
+		_condition = UNCONSCIOUS | BAD_CONDITION;
+		return;
+	}
+
+	// Fun fact: in the original if any of the attributes reach zero,
+	// then it jumps to an instruction that jumps to itself, freezing the game.
+	// For ScummVM, I just limit the minimum to 1 instead
+	if (_age >= 60) {
+		_might._current = MAX(_might._current - 1, 1);
+		_endurance._current = MAX(_endurance._current - 1, 1);
+		_speed._current = MAX(_speed._current - 1, 1);
+	}
+	if (_age >= 70) {
+		_might._current = MAX(_might._current - 1, 1);
+		_endurance._current = MAX(_endurance._current - 1, 1);
+		_speed._current = MAX(_speed._current - 1, 1);
+	}
+
+	if (_age >= 80) {
+		_might._current = MAX((int)_might._current - 2, 1);
+	}
+
+	if (_food > 0) {
+		--_food;
+
+		if (_condition & POISONED) {
+			_hpMax /= 2;
+		} else {
+			_hpMax = _hp;
+		}
+
+		if (!(_condition & DISEASED)) {
+			_hpCurrent = _hpMax;
+			_sp._current = _sp._base;
+		}
+	}
+}
+
+bool Character::hasItem(byte itemId) const {
+	return _backpack.indexOf(itemId) != -1 ||
+		_equipped.indexOf(itemId) != -1;
+}
+
+#define PERF16(x) ((x & 0xff) + ((x >> 8) & 0xff))
+#define PERF32(x) ((x & 0xff) + ((x >> 8) & 0xff) + \
+	((x >> 16) & 0xff) + ((x >> 24) & 0xff))
+
+size_t Character::getPerformanceTotal() const {
+	size_t totalFlags = 0;
+	for (int i = 0; i < 14; ++i)
+		totalFlags += _flags[i];
+
+	return (int)_sex
+		+ _alignmentInitial
+		+ _alignment
+		+ _race
+		+ _class
+		+ _intelligence.getPerformanceTotal()
+		+ _might.getPerformanceTotal()
+		+ _personality.getPerformanceTotal()
+		+ _endurance.getPerformanceTotal()
+		+ _speed.getPerformanceTotal()
+		+ _accuracy.getPerformanceTotal()
+		+ _luck.getPerformanceTotal()
+		+ _level.getPerformanceTotal()
+		+ (int)_age + (int)_ageDayCtr
+		+ PERF32(_exp)
+		+ _sp.getPerformanceTotal()
+		+ _spellLevel.getPerformanceTotal()
+		+ PERF16(_gems)
+		+ PERF16(_hpCurrent)
+		+ PERF16(_hp)
+		+ PERF16(_hpMax)
+		+ PERF32(_gold)
+		+ _ac
+		+ _food
+		+ _condition
+		+ _equipped.getPerformanceTotal()
+		+ _backpack.getPerformanceTotal()
+		+ _resistances.getPerformanceTotal()
+		+ _physicalAttr.getPerformanceTotal()
+		+ _missileAttr.getPerformanceTotal()
+		+ _trapCtr
+		+ _quest
+		+ _worthiness
+		+ _alignmentCtr
+		+ totalFlags;
+}
+
+uint32 Character::experienceForNextLevel() const {
+	if (_level._base >= MAX_LEVEL)
+		return 0;
+
+	uint32 expTotal;
+	const uint32 expAmount =
+		(_class == KNIGHT || _class == CLERIC || _class == ROBBER) ?
+		150000 : 200000;
+
+	if (_class == KNIGHT || _class == CLERIC || _class == ROBBER)
+		expTotal = 1500;
+	else
+		expTotal = 2000;
+
+	// The requirement doubles for each level up to level 8, after which
+	// each further level adds a fixed amount
+	for (int level = _level._base - 1, ctr = 0; level > 0; --level) {
+		expTotal *= 2;
+
+		if (++ctr >= 7) {
+			while (--level > 0)
+				expTotal += expAmount;
+			break;
+		}
+	}
+
+	return expTotal;
+}
+
+bool Character::canLevelUp() const {
+	return _level._base < MAX_LEVEL &&
+		_exp >= experienceForNextLevel();
+}
+
+byte Character::statColor(int amount, int threshold) const {
+	if (amount < 1)
+		return 6;
+	else if (amount > threshold)
+		return 2;
+	else if (amount == threshold)
+		return 15;
+	else if (amount >= (threshold / 4))
+		return 9;
+	else
+		return 32;
+}
+
+byte Character::conditionColor() const {
+	if (_condition == ERADICATED)
+		return 32;
+	else if (_condition == FINE)
+		return 15;
+	else if (_condition & BAD_CONDITION)
+		return 6;
+	else
+		return 9;
+}
+
+ConditionEnum Character::worstCondition() const {
+	if (_condition == ERADICATED) {
+		return C_ERADICATED;
+	} else if (_condition & BAD_CONDITION) {
+		if (_condition & DEAD)
+			return C_DEAD;
+		if (_condition & STONE)
+			return C_STONE;
+		if (_condition & UNCONSCIOUS)
+			return C_UNCONSCIOUS;
+	} else {
+		if (_condition & PARALYZED)
+			return C_PARALYZED;
+		if (_condition & POISONED)
+			return C_POISONED;
+		if (_condition & DISEASED)
+			return C_DISEASED;
+		if (_condition & SILENCED)
+			return C_SILENCED;
+		if (_condition & BLINDED)
+			return C_BLINDED;
+		if (_condition & ASLEEP)
+			return C_ASLEEP;
+	}
+
+	return C_GOOD;
+}
+
+Common::String Character::getConditionString(ConditionEnum cond) {
+	switch (cond) {
+	case C_ERADICATED: return "Eradicated";
+	case C_DEAD: return "Dead";
+	case C_STONE: return "Stone";
+	case C_UNCONSCIOUS: return "Unconscious";
+	case C_PARALYZED: return "Paralyzed";
+	case C_POISONED: return "Poisoned";
+	case C_DISEASED: return "Diseased";
+	case C_SILENCED: return "Silenced";
+	case C_BLINDED: return "Blinded";
+	case C_ASLEEP: return "Asleep";
+	default: return "Good";
+	}
+}
+
+int Character::spellNumber() const {
+	return g_events->isInCombat() ? _combatSpell : _nonCombatSpell;
+}
+
+void Character::setSpellNumber(int spellNum) {
+	if (g_events->isInCombat())
+		_combatSpell = spellNum;
+	else
+		_nonCombatSpell = spellNum;
+}
+
+} // namespace MM1
+} // namespace MM

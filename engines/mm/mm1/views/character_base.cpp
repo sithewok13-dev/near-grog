@@ -1,0 +1,186 @@
+/* ScummVM - Graphic Adventure Engine
+ *
+ * ScummVM is the legal property of its developers, whose names
+ * are too numerous to list here. Please refer to the COPYRIGHT
+ * file distributed with this source distribution.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+#include "mm/mm1/views/character_base.h"
+#include "mm/mm1/data/text.h"
+#include "mm/mm1/utils/strings.h"
+#include "mm/mm1/globals.h"
+
+namespace MM {
+namespace MM1 {
+namespace Views {
+
+void CharacterBase::printStats() {
+	Character &re = *g_globals->_currCharacter;
+	printSummary();
+
+	writeString(0, 2, "Int=");
+	writeNumber(re._intelligence);
+	_textPos.x = 8;
+	writeString("Level=");
+	writeNumber(re._level);
+	_textPos.x = 18;
+	writeString("Age=");
+	writeNumber(re._level);
+	_textPos.x = 27;
+	writeString("Exp=");
+	writeNumber(re._exp);
+
+	newLine();
+	writeString("Mgt=");
+	writeNumber(re._might);
+
+	newLine();
+	writeString("Per=");
+	writeNumber(re._personality);
+	_textPos.x = 8;
+	writeString("SP=");
+	writeNumber(re._sp._current);
+	_textPos.x = 16;
+	writeChar('/');
+	writeNumber(re._sp._base);
+	_textPos.x = 22;
+	writeChar('(');
+	writeNumber(re._spellLevel._current);
+	writeChar(')');
+	_textPos.x = 26;
+	writeString("Gems=");
+	writeNumber(re._gems);
+
+	newLine();
+	writeString("End=");
+	writeNumber(re._endurance);
+
+	newLine();
+	writeString("Spd=");
+	writeNumber(re._speed);
+	_textPos.x = 8;
+	writeString("HP=");
+	writeNumber(re._hpCurrent);
+	_textPos.x = 16;
+	writeChar('/');
+	writeNumber(re._hpMax);
+	_textPos.x = 26;
+	writeString("Gold=");
+	writeNumber(re._gold);
+
+	newLine();
+	writeString("Acy=");
+	writeNumber(re._accuracy);
+
+	newLine();
+	writeString("Luc=");
+	writeNumber(re._luck);
+	_textPos.x = 8;
+	writeString("AC=");
+	writeNumber(re._ac);
+	_textPos.x = 26;
+	writeString("Food=");
+	writeNumber(re._food);
+
+	newLine();
+	newLine();
+	printCondition();
+	printInventory();
+}
+
+void CharacterBase::printSummary() {
+	Character &re = *g_globals->_currCharacter;
+	writeString(1, 0, re._name);
+
+	_textPos.x = 17;
+	writeString(": ");
+
+	writeChar((re._sex == MALE) ? 'M' : (re._sex == FEMALE ? 'F' : 'O'));
+
+	_textPos.x++;
+	writeString((re._alignment >= GOOD && re._alignment <= EVIL) ?
+		ALIGNMENT_NAMES[re._alignment - 1] :
+		"None"
+	);
+
+	if (re._race >= HUMAN && re._race <= HALF_ORC)
+		writeString(26, 0, RACE_NAMES[re._race - 1]);
+	else
+		writeString(26, 0, "None");
+
+	if (re._class >= KNIGHT && re._class <= ROBBER)
+		writeString(32, 0, CLASS_NAMES[re._class - 1]);
+	else
+		writeString(32, 0, "None");
+}
+
+void CharacterBase::printCondition() {
+	Character &c = *g_globals->_currCharacter;
+	writeString("Cond=");
+	_textPos.x++;
+
+	writeString(c.getConditionString());
+}
+
+void CharacterBase::printInventory() {
+	Character &re = *g_globals->_currCharacter;
+	writeString(0, 12, "-----<Equipped>----------<Backpack>----");
+
+	// Print the equipped and backpack items
+	for (uint i = 0; i < INVENTORY_COUNT; ++i) {
+		// Equippied item
+		writeChar(0, 13 + i, '1' + i);
+		writeChar(')');
+		_textPos.x++;
+
+		if (i < re._equipped.size()) {
+			g_globals->_items.getItem(re._equipped[i]._id);
+			const Item &item = g_globals->_currItem;
+			writeString(item._name);
+		}
+
+		// Backpack item
+		writeChar(20, 13 + i, 'A' + i);
+		writeChar(')');
+		_textPos.x++;
+
+		if (i < re._backpack.size()) {
+			g_globals->_items.getItem(re._backpack[i]._id);
+			const Item &item = g_globals->_currItem;
+			writeString(item._name);
+		}
+	}
+}
+
+void CharacterBase::draw() {
+	assert(g_globals->_currCharacter);
+	clearSurface();
+	printStats();
+}
+
+bool CharacterBase::msgAction(const ActionMessage &msg) {
+	if (msg._action == KEYBIND_ESCAPE) {
+		close();
+		return true;
+	}
+
+	return false;
+}
+
+} // namespace Views
+} // namespace MM1
+} // namespace MM
