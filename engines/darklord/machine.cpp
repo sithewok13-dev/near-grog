@@ -68,6 +68,33 @@ static const char kShifted[][2] = {
 	{ '[', ':' }, { ']', ';' }
 };
 
+/**
+ * The game was shipped on two disk sides and asks the player to turn the disk
+ * over after the start menu. Both sides are always available here, so the
+ * code that prints the request and waits for RETURN (in DLART) is replaced
+ * with NOPs. The patch is position independent because the game copies DLART
+ * elsewhere in memory before running it.
+ */
+static void skipDiskFlip(Common::Array<byte> &data) {
+	// LDX #$27; LDA abs,X; STA abs,X; DEX; BPL -9 (print the request)
+	// JSR $124C; BEQ -5; CMP #$8D; BNE -9 (wait for RETURN)
+	static const int kPattern[] = {
+		0xA2, 0x27, 0xBD, -1, -1, 0x9D, -1, -1, 0xCA, 0x10, 0xF7,
+		0x20, 0x4C, 0x12, 0xF0, 0xFB, 0xC9, 0x8D, 0xD0, 0xF7
+	};
+	const uint len = ARRAYSIZE(kPattern);
+	for (uint i = 0; i + len <= data.size(); i++) {
+		uint k = 0;
+		while (k < len && (kPattern[k] < 0 || data[i + k] == kPattern[k]))
+			k++;
+		if (k == len) {
+			for (k = 0; k < len; k++)
+				data[i + k] = 0xEA;
+			return;
+		}
+	}
+}
+
 Machine::Machine(MachineHost *host) : _host(host), _cpu(this), _raster(0), _lineCycles(0),
 		_rasterCmp(0), _vicIrq(0), _timerA(0x4025), _timerALatch(0x4025), _cia1IcrMask(0),
 		_cia1Icr(0), _frame(0), _keyHold(0), _keyGap(0), _status(kStatusOk), _statusPos(0) {
@@ -122,6 +149,8 @@ bool Machine::addDisk(Common::SeekableReadStream &d64) {
 				ft = blk[0];
 				fs = blk[1];
 			}
+			if (name == "DLART")
+				skipDiskFlip(data);
 			if (!_files.contains(name))
 				_files[name] = data;
 		}
