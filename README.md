@@ -20,7 +20,9 @@ You need your own copies of the games. Near-Grog never includes game files.
 ## Roadmap
 
 1. iOS build
-2. **Dark Lord** (Datasoft, 1987, C64): a new engine. Research notes live in the
+2. **Dark Lord** (Datasoft, 1987, C64): playable, testing. The `darklord` engine runs
+   the game's original 6502 code on a minimal C64 (no Commodore ROMs). Needs both
+   disk sides, `DARKLRD0.D64` and `DARKLRD1.D64`. Research notes live in the
    owner's `jk-files` repo under `projects/dark-lord`.
 3. **Living pictures for Infocom games:** an optional pack showing pictures and
    short loops above the text, starting with Zork I.
