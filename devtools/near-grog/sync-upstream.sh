@@ -15,9 +15,13 @@ if [ "$OLD" = "$NEW" ]; then
 	exit 0
 fi
 
-# Near-Grog's own copies of these files win; README.md is upstream's README,
-# which Near-Grog keeps at doc/README-ScummVM.md.
-git diff --binary "$OLD" "$NEW" -- . ':(exclude)AGENTS.md' ':(exclude)CLAUDE.md' ':(exclude)README.md' ':(exclude).github/workflows' > /tmp/near-grog-upstream.diff
+# Near-Grog's own copies of these files win (including its logo and app
+# icons; if upstream changes the theme zips, rebuild them with
+# gui/themes/scummtheme.py makeall so they keep the Near-Grog logo);
+# README.md is upstream's README, which Near-Grog keeps at doc/README-ScummVM.md.
+git diff --binary "$OLD" "$NEW" -- . ':(exclude)AGENTS.md' ':(exclude)CLAUDE.md' ':(exclude)README.md' ':(exclude).github/workflows' \
+	':(exclude)dists/ios7/Images.xcassets' ':(exclude)gui/themes/common-svg/logo.svg' ':(exclude)gui/themes/*/logo.bmp' \
+	':(exclude)gui/themes/*/logo_small.bmp' > /tmp/near-grog-upstream.diff
 git diff --binary "$OLD" "$NEW" -- README.md | sed 's#a/README.md#a/doc/README-ScummVM.md#; s#b/README.md#b/doc/README-ScummVM.md#' >> /tmp/near-grog-upstream.diff
 
 git apply --3way --index /tmp/near-grog-upstream.diff
