@@ -96,6 +96,8 @@ private:
 	void onTypedKey(int ch);
 	void runHelpers();
 	void applyCheatHolds();
+	void sendMonstersAway();
+	bool showsDeath() const;
 
 	void buildCharRom();
 	void buildAppleFont();

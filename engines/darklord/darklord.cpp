@@ -178,7 +178,9 @@ void DarkLordEngine::setUpGameHelpers() {
 		answer("isable fastloader", "d", false);
 		_deathTexts.push_back("restart the game");
 	} else if (_gameId != "darklord") {
-		// Polarware's Comprehend games
+		// Polarware's Comprehend games: "Press 'R' if you would like to /
+		// restart the novel." (the last line shows only after a key)
+		_deathTexts.push_back("if you would like to");
 		_deathTexts.push_back("restart the novel");
 	}
 	if (_gameId == "crimsoncrownc64") {
@@ -215,8 +217,9 @@ void DarkLordEngine::onTypedKey(int ch) {
 		} else if (ch == 8) {
 			if (!_line.empty())
 				_line.deleteLastChar();
-		} else if (ch == '\r' && _cheat) {
-			// The state just before this move, to come back to
+		} else if (ch == '\r' && _cheat && !showsDeath()) {
+			// The state just before this move, to come back to (not if a
+			// death is already on screen: keep the one before it)
 			Common::MemoryWriteStreamDynamic w(DisposeAfterUse::YES);
 			_machine->saveState(w);
 			_snapshot = Common::Array<byte>(w.getData(), w.size());
@@ -237,16 +240,29 @@ void DarkLordEngine::applyCheatHolds() {
 			match &= _machine->peek(0x143B + i) == kClock[i];
 		if (match)
 			_machine->poke(0x1A03, 0);
-	} else if (_gameId == "transylvania85" || _gameId == "transylvania85b") {
-		// The werewolf (object 33) and vampire (38) stay away. The game
-		// data at $3000 starts with Comprehend's table of pointers; entry
-		// 22 is where object locations live.
-		uint16 locations = _machine->peek(0x302C) | (_machine->peek(0x302D) << 8);
-		if (locations >= 0x3000 && locations < 0x9000) {
-			_machine->poke(locations + 33, 0xFF);
-			_machine->poke(locations + 38, 0xFF);
-		}
 	}
+}
+
+// Transylvania 1985: the werewolf (object 33) and vampire (38) come and go
+// as usual; one that would have killed you leaves instead. The game data at
+// $3000 starts with Comprehend's table of pointers; entry 22 is where
+// object locations live.
+void DarkLordEngine::sendMonstersAway() {
+	if (_gameId != "transylvania85" && _gameId != "transylvania85b")
+		return;
+	uint16 locations = _machine->peek(0x302C) | (_machine->peek(0x302D) << 8);
+	if (locations >= 0x3000 && locations < 0x9000) {
+		_machine->poke(locations + 33, 0xFF);
+		_machine->poke(locations + 38, 0xFF);
+	}
+}
+
+bool DarkLordEngine::showsDeath() const {
+	Common::String text = _machine->screenText();
+	for (const Common::String &d : _deathTexts)
+		if (text.contains(d))
+			return true;
+	return false;
 }
 
 void DarkLordEngine::runHelpers() {
@@ -277,6 +293,7 @@ void DarkLordEngine::runHelpers() {
 			for (uint i = 0; i < _snapshotLine; i++)
 				_machine->typeChar(8);
 			_snapshot.clear();
+			sendMonstersAway();
 			g_system->displayMessageOnOSD(Common::U32String("Sithewok: that move would have killed you"));
 			break;
 		}

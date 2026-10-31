@@ -36,5 +36,5 @@ You need your own copies of the games. Near-Grog never includes game files.
 5. **Transylvania (C64, 1984 and 1985) and Crimson Crown (C64)**: playable, testing, in
    the same engine as Dark Lord (their own programs on the minimal C64). Disk images
    loose or zipped. Typing `sithewok` turns a cheat on or off: no death (a fatal move
-   is undone), and the werewolf and vampire, or the clock, leave you alone.
+   is undone, and a monster that would have killed you leaves), and the 1984 clock stops.
    Still to come: Transylvania III for PC.
