@@ -101,6 +101,7 @@ Machine::Machine(MachineHost *host) : _host(host), _cpu(this), _raster(0), _line
 	memset(_ram, 0, sizeof(_ram));
 	memset(_charRom, 0, sizeof(_charRom));
 	memset(_color, 0, sizeof(_color));
+	memset(_sid, 0, sizeof(_sid));
 	memset(_vic, 0, sizeof(_vic));
 	memset(_cia1, 0, sizeof(_cia1));
 	memset(_cia2, 0, sizeof(_cia2));
@@ -328,6 +329,7 @@ void Machine::ioWrite(uint16 a, uint8 v) {
 			break;
 		}
 	} else if (a < 0xD800) {
+		_sid[a & 0x1F] = v;
 		if (_host)
 			_host->sidWrite(a & 0x1F, v);
 	} else if (a < 0xDC00) {
@@ -801,7 +803,7 @@ void Machine::render(byte *dst, int pitch) const {
 }
 
 // Save states hold the whole machine, so they work anywhere in the game
-static const uint32 kStateVersion = 1;
+static const uint32 kStateVersion = 2;
 
 void Machine::saveState(Common::WriteStream &s) const {
 	s.writeUint32BE(MKTAG('D', 'L', 'S', 'T'));
@@ -826,10 +828,14 @@ void Machine::saveState(Common::WriteStream &s) const {
 	s.writeByte(_cia1IcrMask);
 	s.writeByte(_cia1Icr);
 	s.writeUint32LE(_frame);
+	s.write(_sid, sizeof(_sid));
 }
 
 bool Machine::loadState(Common::ReadStream &s) {
-	if (s.readUint32BE() != MKTAG('D', 'L', 'S', 'T') || s.readUint32LE() != kStateVersion)
+	if (s.readUint32BE() != MKTAG('D', 'L', 'S', 'T'))
+		return false;
+	uint32 version = s.readUint32LE();
+	if (version < 1 || version > kStateVersion)
 		return false;
 	s.read(_ram, sizeof(_ram));
 	s.read(_color, sizeof(_color));
@@ -851,6 +857,14 @@ bool Machine::loadState(Common::ReadStream &s) {
 	_cia1IcrMask = s.readByte();
 	_cia1Icr = s.readByte();
 	_frame = s.readUint32LE();
+	if (version >= 2) {
+		// Put the sound chip back as it was, or notes hang until the
+		// music next touches each register
+		s.read(_sid, sizeof(_sid));
+		if (_host)
+			for (int r = 0; r < 25; r++)
+				_host->sidWrite(r, _sid[r]);
+	}
 	memset(_matrix, 0, sizeof(_matrix));
 	_typing.clear();
 	_keyHold = 0;

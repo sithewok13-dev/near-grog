@@ -109,6 +109,7 @@ private:
 	byte _charRom[4096];
 	byte _color[1024];
 	byte _vic[64];
+	byte _sid[32];
 	byte _cia1[16];
 	byte _cia2[16];
 	Common::HashMap<Common::String, Common::Array<byte> > _files;
