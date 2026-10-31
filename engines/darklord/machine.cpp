@@ -96,7 +96,7 @@ static void skipDiskFlip(Common::Array<byte> &data) {
 }
 
 Machine::Machine(MachineHost *host) : _host(host), _cpu(this), _raster(0), _lineCycles(0),
-		_rasterCmp(0), _vicIrq(0), _timerA(0x4025), _timerALatch(0x4025), _cia1IcrMask(0),
+		_rasterCmp(0), _vicIrq(0), _stall(0), _denLatched(false), _timerA(0x4025), _timerALatch(0x4025), _cia1IcrMask(0),
 		_cia1Icr(0), _frame(0), _keyHold(0), _keyGap(0), _status(kStatusOk), _statusPos(0) {
 	memset(_ram, 0, sizeof(_ram));
 	memset(_charRom, 0, sizeof(_charRom));
@@ -575,6 +575,12 @@ void Machine::advance(int cycles) {
 		}
 		if (_raster == _rasterCmp)
 			_vicIrq |= 1;
+		// On a bad line the VIC-II fetches a character row and holds the
+		// CPU for about 40 cycles. The game's raster split depends on it.
+		if (_raster == 0x30)
+			_denLatched = (_vic[0x11] & 0x10) != 0;
+		if (_denLatched && _raster >= 0x30 && _raster <= 0xF7 && (_raster & 7) == (_vic[0x11] & 7))
+			_stall += 40;
 	}
 	if (_cia1[0x0E] & 1) {
 		_timerA -= cycles;
@@ -638,6 +644,13 @@ void Machine::runFrame() {
 	int guard = kCyclesPerFrame * 2;
 	while (_frame == frame && guard > 0) {
 		int cycles;
+		if (_stall) {
+			cycles = _stall;
+			_stall = 0;
+			advance(cycles);
+			guard -= cycles;
+			continue;
+		}
 		if ((mapOf(_cpu.pc) == kMapKernal && trap()) || loaderTrap())
 			cycles = 6;
 		else
@@ -663,6 +676,11 @@ void Machine::render(byte *dst, int pitch) const {
 	int vcBase = 0, rc = 0;
 	bool display = false, den = false;
 	byte fg[kScreenW];
+	// Screen codes and colours are fetched on bad lines only and reused for
+	// the rest of the character row, as on the real chip
+	byte rowScreen[40], rowColor[40];
+	memset(rowScreen, 0, sizeof(rowScreen));
+	memset(rowColor, 0, sizeof(rowColor));
 
 	for (int line = 0; line < kLinesPerFrame; line++) {
 		const LineRegs &r = _lines[line];
@@ -672,13 +690,19 @@ void Machine::render(byte *dst, int pitch) const {
 		if (bad) {
 			display = true;
 			rc = 0;
+			uint16 bank = (3 - (r.dd00 & 3)) * 0x4000;
+			uint16 scr = ((r.d018 >> 4) & 15) * 0x400;
+			for (int cx = 0; cx < 40; cx++) {
+				int idx = (vcBase + cx) & 0x3FF;
+				rowScreen[cx] = vicRead(bank, scr + idx);
+				rowColor[cx] = _color[idx] & 15;
+			}
 		}
 
 		if (line >= kFirstVisibleLine && line < kFirstVisibleLine + kScreenH) {
 			byte *out = dst + (line - kFirstVisibleLine) * pitch;
 			memset(fg, 0, sizeof(fg));
 			uint16 bank = (3 - (r.dd00 & 3)) * 0x4000;
-			uint16 scr = ((r.d018 >> 4) & 15) * 0x400;
 			uint16 bmp = ((r.d018 >> 3) & 1) * 0x2000;
 			uint16 chars = ((r.d018 >> 1) & 7) * 0x800;
 			uint8 bg = r.d021 & 15;
@@ -687,8 +711,8 @@ void Machine::render(byte *dst, int pitch) const {
 
 			for (int cx = 0; cx < 40; cx++) {
 				int idx = (vcBase + cx) & 0x3FF;
-				byte s = vicRead(bank, scr + idx);
-				byte c = _color[idx] & 15;
+				byte s = rowScreen[cx];
+				byte c = rowColor[cx];
 				byte b = 0;
 				if (display)
 					b = bitmap ? vicRead(bank, bmp + ((idx * 8 + rc) & 0x1FFF)) : vicRead(bank, chars + s * 8 + rc);
@@ -737,7 +761,7 @@ void Machine::render(byte *dst, int pitch) const {
 				if (line < sy || row >= 21)
 					continue;
 				int sx = (_vic[2 * n] | (((_vic[0x10] >> n) & 1) << 8)) - 24;
-				uint16 ptr = vicRead(bank, scr + 0x3F8 + n) * 64;
+				uint16 ptr = vicRead(bank, ((r.d018 >> 4) & 15) * 0x400 + 0x3F8 + n) * 64;
 				bool behind = _vic[0x1B] & (1 << n);
 				bool smc = _vic[0x1C] & (1 << n);
 				uint32 bits = (vicRead(bank, ptr + row * 3) << 16) | (vicRead(bank, ptr + row * 3 + 1) << 8) | vicRead(bank, ptr + row * 3 + 2);

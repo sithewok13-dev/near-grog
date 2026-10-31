@@ -734,10 +734,8 @@ void XcodeProvider::setupFrameworksBuildPhase(const BuildSetup &setup) {
 		frameworks_iOS.push_back("QuartzCore.framework");
 		frameworks_iOS.push_back("OpenGLES.framework");
 		frameworks_iOS.push_back("CoreMIDI.framework");
-
-		if (CONTAINS_DEFINE(setup.defines, "USE_TTS")) {
-			frameworks_iOS.push_back("AVFAudio.framework");
-		}
+		// Near-Grog: always linked, for the audio session (sound with the mute switch on)
+		frameworks_iOS.push_back("AVFAudio.framework");
 
 		if (CONTAINS_DEFINE(setup.defines, "USE_FAAD")) {
 			frameworks_iOS.push_back(getLibString("faad", setup.useXCFramework));

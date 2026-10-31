@@ -118,6 +118,8 @@ private:
 	int _lineCycles;
 	int _rasterCmp;
 	uint8 _vicIrq;
+	int _stall;
+	bool _denLatched;
 	int32 _timerA;
 	uint16 _timerALatch;
 	uint8 _cia1IcrMask, _cia1Icr;

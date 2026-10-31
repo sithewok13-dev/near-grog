@@ -24,6 +24,8 @@
 #include "backends/platform/ios7/ios7_scummvm_view_controller.h"
 #include "backends/platform/ios7/ios7_video.h"
 
+#import <AVFAudio/AVAudioSession.h>
+
 @implementation iOS7AppDelegate {
 	UIWindow *_window;
 	iOS7ScummVMViewController *_controller;
@@ -42,6 +44,13 @@
 
 - (void)applicationDidFinishLaunching:(UIApplication *)application {
 	CGRect rect = [[UIScreen mainScreen] bounds];
+
+	// Near-Grog: play game sound even with the mute switch on, like a media
+	// app, while letting other apps' audio carry on underneath
+	[[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback
+	                                 withOptions:AVAudioSessionCategoryOptionMixWithOthers
+	                                       error:nil];
+	[[AVAudioSession sharedInstance] setActive:YES error:nil];
 
 	// Create the directory for savegames
 	NSFileManager *fm = [NSFileManager defaultManager];

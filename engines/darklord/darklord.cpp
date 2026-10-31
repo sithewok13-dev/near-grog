@@ -90,12 +90,12 @@ void DarkLordEngine::buildCharRom() {
 				ch = 0x1B; // left arrow
 			else if (code < 64)
 				ch = code;
+			else if (set && code >= 65 && code <= 90)
+				ch = 'A' + code - 65; // the lower case set has capitals here
 			else if (code == 64 || code == 67 || code == 68 || code == 69)
 				ch = 0xC4; // horizontal line
 			else if (code == 66 || code == 93)
 				ch = 0xB3; // vertical line
-			else if (set && code <= 90)
-				ch = 'A' + code - 65;
 
 			glyph.fillRect(Common::Rect(0, 0, 8, 8), 0);
 			font.drawChar(&glyph, ch, 0, 0, 1);
