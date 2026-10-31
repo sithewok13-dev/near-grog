@@ -36,6 +36,7 @@ public:
 
 	bool hasFeature(MetaEngineFeature f) const override {
 		return f == kSupportsListSaves ||
+			f == kSimpleSavesNames ||
 			f == kSupportsLoadingDuringStartup ||
 			f == kSupportsDeleteSave ||
 			f == kSavesSupportMetaInfo ||
