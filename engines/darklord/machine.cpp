@@ -73,9 +73,10 @@ static const char kShifted[][2] = {
  * over after the start menu. Both sides are always available here, so the
  * code that prints the request and waits for RETURN (in DLART) is replaced
  * with NOPs. The patch is position independent because the game copies DLART
- * elsewhere in memory before running it.
+ * elsewhere in memory before running it. It goes into the disk image too,
+ * because the original release reads DLART sector by sector.
  */
-static void skipDiskFlip(Common::Array<byte> &data) {
+static void skipDiskFlip(Common::Array<byte> &data, const Common::Array<int> &where, Common::Array<byte> &img) {
 	// LDX #$27; LDA abs,X; STA abs,X; DEX; BPL -9 (print the request)
 	// JSR $124C; BEQ -5; CMP #$8D; BNE -9 (wait for RETURN)
 	static const int kPattern[] = {
@@ -88,14 +89,16 @@ static void skipDiskFlip(Common::Array<byte> &data) {
 		while (k < len && (kPattern[k] < 0 || data[i + k] == kPattern[k]))
 			k++;
 		if (k == len) {
-			for (k = 0; k < len; k++)
+			for (k = 0; k < len; k++) {
 				data[i + k] = 0xEA;
+				img[where[i + k]] = 0xEA;
+			}
 			return;
 		}
 	}
 }
 
-Machine::Machine(MachineHost *host) : _host(host), _cpu(this), _raster(0), _lineCycles(0),
+Machine::Machine(MachineHost *host) : _host(host), _cpu(this), _currentDisk(0), _raster(0), _lineCycles(0),
 		_rasterCmp(0), _vicIrq(0), _stall(0), _denLatched(false), _timerA(0x4025), _timerALatch(0x4025), _cia1IcrMask(0),
 		_cia1Icr(0), _frame(0), _keyHold(0), _keyGap(0), _status(kStatusOk), _statusPos(0) {
 	memset(_ram, 0, sizeof(_ram));
@@ -137,32 +140,37 @@ bool Machine::addDisk(Common::SeekableReadStream &d64) {
 			for (int k = 0; k < 16 && e[5 + k] != 0xA0; k++)
 				name += (char)e[5 + k];
 			Common::Array<byte> data;
+			Common::Array<int> where; // image offset of each byte
 			int ft = e[3], fs = e[4], blocks = 0;
 			while (ft && valid(ft, fs) && blocks++ < 800) {
-				const byte *blk = &img[offset(ft, fs)];
-				if (blk[0] == 0) {
-					for (int k = 2; k <= blk[1]; k++)
-						data.push_back(blk[k]);
-					break;
-				}
-				for (int k = 2; k < 256; k++)
+				int o = offset(ft, fs);
+				const byte *blk = &img[o];
+				int last = blk[0] == 0 ? blk[1] : 255;
+				for (int k = 2; k <= last; k++) {
 					data.push_back(blk[k]);
+					where.push_back(o + k);
+				}
+				if (blk[0] == 0)
+					break;
 				ft = blk[0];
 				fs = blk[1];
 			}
 			if (name == "DLART")
-				skipDiskFlip(data);
-			if (!_files.contains(name))
+				skipDiskFlip(data, where, img);
+			if (!_files.contains(name)) {
 				_files[name] = data;
+				_fileDisk[name] = _disks.size();
+			}
 		}
 		t = dir[0];
 		s = dir[1];
 	}
 	_lastDisk = img;
+	_disks.push_back(img);
 	return !_files.empty();
 }
 
-int Machine::sectorOffset(int track, int sector) const {
+int Machine::sectorOffset(int track, int sector) {
 	static const int kSectors[35] = {
 		21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21,
 		19, 19, 19, 19, 19, 19, 19, 18, 18, 18, 18, 18, 18, 17, 17, 17, 17, 17
@@ -172,11 +180,27 @@ int Machine::sectorOffset(int track, int sector) const {
 	int o = 0;
 	for (int i = 0; i < track - 1; i++)
 		o += kSectors[i];
-	o = (o + sector) * 256;
-	return o + 256 <= (int)_lastDisk.size() ? o : -1;
+	return (o + sector) * 256;
 }
 
 bool Machine::boot() {
+	if (!_files.contains("DL") && _files.contains("LOADSTAR") && _files.contains("OS64")) {
+		// The original release: LOAD"*",8,1 brings in LOADSTAR, which takes
+		// over BASIC's idle vector and loads the game's own OS64
+		const Common::Array<byte> &ls = _files["LOADSTAR"];
+		uint16 la = ls[0] | (ls[1] << 8);
+		for (uint i = 2; i < ls.size(); i++)
+			_ram[(uint16)(la + i - 2)] = ls[i];
+		_ram[0] = 0x2F;
+		_ram[1] = 0x37;
+		_ram[0xBA] = 8;
+		_ram[0xB9] = 1;
+		_ram[0x0314] = 0x31; _ram[0x0315] = 0xEA;
+		_ram[0x0330] = 0xA5; _ram[0x0331] = 0xF4;
+		_ram[0x0332] = 0xED; _ram[0x0333] = 0xF5;
+		_cpu.reset(_ram[0x0302] | (_ram[0x0303] << 8));
+		return true;
+	}
 	if (!_files.contains("DL"))
 		return false;
 	const Common::Array<byte> &dl = _files["DL"];
@@ -602,40 +626,128 @@ void Machine::advance(int cycles) {
 // its sector calls: $FC06 reads and $FC09 writes 256 bytes, with A pointing
 // at a zero-page buffer address, X = track and Y = sector. Saves live on
 // track 35 of the second disk side; written sectors go to the host.
+// Saved games are raw sectors on track 35; they go to the host's save files
+void Machine::writeSector(int track, int sector, uint16 buf) {
+	Common::Array<byte> data(256);
+	for (int i = 0; i < 256; i++)
+		data[i] = _ram[(uint16)(buf + i)];
+	if (_host)
+		_host->diskSave(Common::String::format("T%02dS%02d", track, sector), data);
+	debug(1, "DarkLord: write track %d sector %d from $%04X", track, sector, buf);
+}
+
+void Machine::readSector(const Common::Array<byte> &disk, int track, int sector, uint16 buf) {
+	Common::Array<byte> data;
+	if (!(_host && _host->diskLoad(Common::String::format("T%02dS%02d", track, sector), data) && data.size() == 256)) {
+		data.resize(256);
+		int o = sectorOffset(track, sector);
+		bool valid = o >= 0 && o + 256 <= (int)disk.size();
+		for (int i = 0; i < 256; i++)
+			data[i] = valid ? disk[o + i] : 0;
+		// A save slot nobody has written yet: answer like a fresh original
+		// disk, whose slots carry the game's marker byte
+		if (track == 35)
+			data[0x61] = _ram[0xCD61];
+	}
+	for (int i = 0; i < 256; i++)
+		_ram[(uint16)(buf + i)] = data[i];
+	debug(1, "DarkLord: read track %d sector %d to $%04X", track, sector, buf);
+}
+
+// The original release replaces the KERNAL with its own OS64, which loads
+// through a fast loader it sends to the 1541; the game later moves a copy of
+// that loader to $FC00. Instead of emulating the drive, the routines that
+// talk to it are recognised by their code and answered here, wherever they
+// sit. The file and directory code above them runs unchanged.
+bool Machine::os64Trap() {
+	uint16 pc = _cpu.pc;
+	if (pc != 0x0500 && pc < 0xF000)
+		return false;
+	if (mapOf(pc) != kMapRam)
+		return false;
+	const byte *code = &_ram[pc];
+	auto at = [&](const int *pattern, uint len) {
+		if (pc + len > 0x10000)
+			return false;
+		for (uint i = 0; i < len; i++)
+			if (pattern[i] >= 0 && code[i] != pattern[i])
+				return false;
+		return true;
+	};
+
+	// Uploads the drive code and waits for the drive to start it
+	static const int kSendDriveCode[] = { 0xA5, 0x01, 0x48, 0xA9, 0x36, 0x85, 0x01, 0x20, 0x85, 0x05 };
+	// STA status; STX track; STY sector; LDA #$20 (read) or #$23 (write); JSR send
+	static const int kSectorIo[] = { 0x8D, -1, -1, 0x8E, -1, -1, 0x8C, -1, -1, 0xA9, -1, 0x20 };
+	// Starting a file load from a parameter block (address, count, name)
+	static const int kLoadOs64[] = { 0x86, 0x03, 0x84, 0x04, 0xA0, 0x00, 0xB1, 0x03, 0x8D };
+	static const int kLoadGame[] = { 0x84, 0x04, 0xA0, 0x00, 0xB1, 0x03, 0x8D };
+	static const int kSendByte[] = { 0x85, 0x02, 0xAD, 0x00, 0xDD, 0x49, 0x20, 0x8D, 0x00, 0xDD };
+	static const int kReceiveByte[] = { 0xA9, 0x01, 0x85, 0x02, 0x2C, 0x00, 0xDD, 0x50, 0xFB };
+	static const int kHandshake[] = { 0x2C, 0x00, 0xDD, 0x50, 0xFB, 0xAD, 0x00, 0xDD, 0x09, 0x10 };
+
+	if (pc == 0x0500) {
+		if (!at(kSendDriveCode, ARRAYSIZE(kSendDriveCode)))
+			return false;
+		_cpu.p &= ~Cpu6502::kFlagC;
+		rts();
+		return true;
+	}
+	if (at(kLoadOs64, ARRAYSIZE(kLoadOs64)) || at(kLoadGame, ARRAYSIZE(kLoadGame))) {
+		// Read the file from the disk side that holds it, then carry on
+		uint16 block = (code[0] == 0x86 ? _cpu.x : _ram[3]) | (_cpu.y << 8);
+		Common::String name;
+		for (int i = 0; i < 16 && _ram[(uint16)(block + 4 + i)]; i++)
+			name += (char)_ram[(uint16)(block + 4 + i)];
+		if (_fileDisk.contains(name))
+			_currentDisk = _fileDisk[name];
+		debug(1, "DarkLord: loader opens \"%s\" on side %u", name.c_str(), _currentDisk + 1);
+		return false;
+	}
+	if (at(kSectorIo, ARRAYSIZE(kSectorIo)) && (code[10] == 0x20 || code[10] == 0x23)) {
+		bool writing = code[10] == 0x23;
+		uint16 buf = _ram[_cpu.a] | (_ram[(uint8)(_cpu.a + 1)] << 8);
+		_ram[code[4] | (code[5] << 8)] = _cpu.x;
+		_ram[code[7] | (code[8] << 8)] = _cpu.y;
+		if (writing)
+			writeSector(_cpu.x, _cpu.y, buf);
+		else if (_currentDisk < _disks.size())
+			readSector(_disks[_currentDisk], _cpu.x, _cpu.y, buf);
+		// Drive status 0, compared with 1 as the original does: carry clear
+		_cpu.a = 0;
+		_cpu.p = (_cpu.p & ~(Cpu6502::kFlagC | Cpu6502::kFlagZ)) | Cpu6502::kFlagN;
+		rts();
+		return true;
+	}
+	if (at(kSendByte, ARRAYSIZE(kSendByte))) {
+		debug(2, "DarkLord: loader sends drive byte $%02X", _cpu.a);
+		rts();
+		return true;
+	}
+	if (at(kReceiveByte, ARRAYSIZE(kReceiveByte))) {
+		_cpu.a = 0;
+		_cpu.p = (_cpu.p & ~Cpu6502::kFlagN) | Cpu6502::kFlagZ;
+		rts();
+		return true;
+	}
+	if (at(kHandshake, ARRAYSIZE(kHandshake))) {
+		rts();
+		return true;
+	}
+	return false;
+}
+
 bool Machine::loaderTrap() {
 	static const byte kJumpTable[] = { 0x4C, 0x2C, 0xFC, 0x4C, 0x20, 0xFC, 0x4C, 0x0C, 0xFC, 0x4C, 0xA8, 0xFC };
 	if ((_cpu.pc != 0xFC06 && _cpu.pc != 0xFC09) || mapOf(_cpu.pc) != kMapRam ||
 			memcmp(&_ram[0xFC00], kJumpTable, sizeof(kJumpTable)) != 0)
 		return false;
 
-	bool writing = _cpu.pc == 0xFC09;
-	int track = _cpu.x, sector = _cpu.y;
 	uint16 buf = _ram[_cpu.a] | (_ram[(uint8)(_cpu.a + 1)] << 8);
-	Common::String name = Common::String::format("T%02dS%02d", track, sector);
-
-	if (writing) {
-		Common::Array<byte> data(256);
-		for (int i = 0; i < 256; i++)
-			data[i] = _ram[(uint16)(buf + i)];
-		if (_host)
-			_host->diskSave(name, data);
-		debug(1, "DarkLord: write track %d sector %d from $%04X", track, sector, buf);
-	} else {
-		Common::Array<byte> data;
-		if (!(_host && _host->diskLoad(name, data) && data.size() == 256)) {
-			data.resize(256);
-			int o = sectorOffset(track, sector);
-			for (int i = 0; i < 256; i++)
-				data[i] = o >= 0 ? _lastDisk[o + i] : 0;
-			// A save slot nobody has written yet: answer like a fresh original
-			// disk, whose slots carry the game's marker byte
-			if (track == 35)
-				data[0x61] = _ram[0xCD61];
-		}
-		for (int i = 0; i < 256; i++)
-			_ram[(uint16)(buf + i)] = data[i];
-		debug(1, "DarkLord: read track %d sector %d to $%04X", track, sector, buf);
-	}
+	if (_cpu.pc == 0xFC09)
+		writeSector(_cpu.x, _cpu.y, buf);
+	else
+		readSector(_lastDisk, _cpu.x, _cpu.y, buf);
 	_cpu.p &= ~Cpu6502::kFlagC;
 	rts();
 	return true;
@@ -653,7 +765,7 @@ void Machine::runFrame() {
 			guard -= cycles;
 			continue;
 		}
-		if ((mapOf(_cpu.pc) == kMapKernal && trap()) || loaderTrap())
+		if ((mapOf(_cpu.pc) == kMapKernal && trap()) || loaderTrap() || os64Trap())
 			cycles = 6;
 		else
 			cycles = _cpu.step();

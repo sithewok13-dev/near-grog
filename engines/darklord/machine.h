@@ -114,6 +114,11 @@ private:
 	byte _cia2[16];
 	Common::HashMap<Common::String, Common::Array<byte> > _files;
 	Common::Array<byte> _lastDisk;
+	// Every disk side, and which side each file is on, for the original
+	// release, whose own loader reads sectors
+	Common::Array<Common::Array<byte> > _disks;
+	Common::HashMap<Common::String, uint> _fileDisk;
+	uint _currentDisk;
 
 	int _raster;
 	int _lineCycles;
@@ -147,7 +152,10 @@ private:
 	void kernalLoad();
 	void kernalSave();
 	bool loaderTrap();
-	int sectorOffset(int track, int sector) const;
+	bool os64Trap();
+	void readSector(const Common::Array<byte> &disk, int track, int sector, uint16 buf);
+	void writeSector(int track, int sector, uint16 buf);
+	static int sectorOffset(int track, int sector);
 	void advance(int cycles);
 	byte vicRead(uint16 bankBase, uint16 offset) const;
 };
