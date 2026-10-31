@@ -37,6 +37,8 @@ public:
 		return "Dark Lord";
 	}
 
+	ADDetectedGame fallbackDetect(const FileMap &allFiles, const Common::FSList &fslist, ADDetectedGameExtraInfo **extra) const override;
+
 	const char *getOriginalCopyright() const override {
 		return "Dark Lord (C) 1987 Kyle Freeman, Datasoft";
 	}

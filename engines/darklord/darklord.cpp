@@ -23,13 +23,16 @@
 #include "common/config-manager.h"
 #include "common/events.h"
 #include "common/file.h"
+#include "common/fs.h"
 #include "common/func.h"
+#include "common/memstream.h"
 #include "common/savefile.h"
 #include "common/system.h"
 #include "engines/util.h"
 #include "graphics/fonts/dosfont.h"
 #include "graphics/paletteman.h"
 #include "darklord/darklord.h"
+#include "darklord/disks.h"
 
 namespace DarkLord {
 
@@ -201,10 +204,18 @@ Common::Error DarkLordEngine::run() {
 	_screen.create(Machine::kScreenW, Machine::kScreenH, Graphics::PixelFormat::createFormatCLUT8());
 
 	_machine = new Machine(this);
-	for (const ADGameFileDescription *fd = _desc->filesDescriptions; fd->fileName; fd++) {
-		Common::File f;
-		if (!f.open(Common::Path(fd->fileName)) || !_machine->addDisk(f))
-			return Common::Error(Common::kNoGameDataFoundError, fd->fileName);
+	// Both sides, loose or zipped, under any names. Side 2 goes last: the
+	// game's saves are sectors on that side.
+	Common::FSList files;
+	Common::FSNode(ConfMan.getPath("path")).getChildren(files, Common::FSNode::kListFilesOnly);
+	DiskFinder finder;
+	finder.scan(files);
+	if (!finder.found())
+		return Common::Error(Common::kNoGameDataFoundError, "both Dark Lord disk sides (.d64)");
+	for (int i = 0; i < 2; i++) {
+		Common::MemoryReadStream s(finder.side[i].data(), finder.side[i].size());
+		if (!_machine->addDisk(s))
+			return Common::kNoGameDataFoundError;
 	}
 	if (!_machine->boot())
 		return Common::kNoGameDataFoundError;

@@ -21,6 +21,7 @@
 
 #include "base/plugins.h"
 #include "darklord/detection.h"
+#include "darklord/disks.h"
 
 namespace DarkLord {
 
@@ -45,9 +46,28 @@ static const ADGameDescription gameDescriptions[] = {
 	AD_TABLE_END_MARKER
 };
 
+// Disks under other names, or inside a .zip: found by their contents
+static const ADGameDescription fallbackDescription = {
+	"darklord",
+	"",
+	AD_ENTRY1(nullptr, nullptr),
+	Common::EN_ANY,
+	Common::kPlatformC64,
+	ADGF_TESTING,
+	GUIO2(GUIO_NOMIDI, GUIO_NOSPEECH)
+};
+
 } // End of namespace DarkLord
 
 DarkLordMetaEngineDetection::DarkLordMetaEngineDetection() : AdvancedMetaEngineDetection(DarkLord::gameDescriptions, DarkLord::darkLordGames) {
+}
+
+ADDetectedGame DarkLordMetaEngineDetection::fallbackDetect(const FileMap &allFiles, const Common::FSList &fslist, ADDetectedGameExtraInfo **extra) const {
+	DarkLord::DiskFinder finder;
+	finder.scan(fslist);
+	if (!finder.found())
+		return ADDetectedGame();
+	return ADDetectedGame(&DarkLord::fallbackDescription);
 }
 
 REGISTER_PLUGIN_STATIC(DARKLORD_DETECTION, PLUGIN_TYPE_ENGINE_DETECTION, DarkLordMetaEngineDetection);
