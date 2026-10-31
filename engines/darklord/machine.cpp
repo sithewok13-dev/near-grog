@@ -42,7 +42,27 @@ enum {
 	kTrapChrin = 0xFFCF,
 	kTrapChrout = 0xFFD2,
 	kTrapStop = 0xFFE1,
-	kTrapGetin = 0xFFE4
+	kTrapGetin = 0xFFE4,
+	kTrapClrchn = 0xFFCC,
+	kTrapSecond = 0xFF93,
+	kTrapTksa = 0xFF96,
+	kTrapCiout = 0xFFA8,
+	kTrapUntlk = 0xFFAB,
+	kTrapUnlsn = 0xFFAE,
+	kTrapListen = 0xFFB1,
+	kTrapClall = 0xFFE7,
+	kTrapPlot = 0xFFF0,
+	kTrapCint = 0xFF81,
+	kTrapCintBody = 0xFF5B,
+	kTrapIoinit = 0xFF84,
+	kTrapRestor = 0xFF8A,
+	// Screen editor routines programs call directly
+	kTrapClearScreen = 0xE544,
+	kTrapHome = 0xE566,
+	kTrapPrint = 0xE716,
+	kTrapLinePtr = 0xE9F0,
+	kTrapClearLine = 0xE9FF,
+	kTrapColourPtr = 0xEA24
 };
 
 static const char *const kStatusOk = "00, OK,00,00\r";
@@ -100,7 +120,16 @@ static void skipDiskFlip(Common::Array<byte> &data, const Common::Array<int> &wh
 
 Machine::Machine(MachineHost *host) : _host(host), _cpu(this), _currentDisk(0), _raster(0), _lineCycles(0),
 		_rasterCmp(0), _vicIrq(0), _stall(0), _denLatched(false), _timerA(0x4025), _timerALatch(0x4025), _cia1IcrMask(0),
-		_cia1Icr(0), _frame(0), _keyHold(0), _keyGap(0), _status(kStatusOk), _statusPos(0) {
+		_cia1Icr(0), _frame(0), _keyHold(0), _keyGap(0), _status(kStatusOk), _statusPos(0),
+		_inLfn(0), _outLfn(0), _lineReady(false), _iecListening(false), _iecOpening(false),
+		_iecSa(0), _iecTalkSa(15), _kernalKeyboard(false) {
+	for (int i = 0; i < 16; i++) {
+		_drive[i].kind = kChanNone;
+		_drive[i].pos = 0;
+		_drive[i].buffer = 0;
+	}
+	memset(_driveRam, 0, sizeof(_driveRam));
+	_chainTrack = _chainSector = _chainLeft = 0;
 	memset(_ram, 0, sizeof(_ram));
 	memset(_charRom, 0, sizeof(_charRom));
 	memset(_color, 0, sizeof(_color));
@@ -201,8 +230,54 @@ bool Machine::boot() {
 		_cpu.reset(_ram[0x0302] | (_ram[0x0303] << 8));
 		return true;
 	}
-	if (!_files.contains("DL"))
+	if (!_files.contains("DL")) {
+		// Other games: the boot program as LOAD"*",8,1 and RUN would start it
+		static const char *const kBoot[] = { "B", "CRIMSON CROWN", "TRANSYLVANIA" };
+		for (const char *name : kBoot) {
+			if (!_files.contains(name) || _files[name].size() < 4)
+				continue;
+			const Common::Array<byte> &prg = _files[name];
+			uint16 la = prg[0] | (prg[1] << 8);
+			for (uint i = 2; i < prg.size(); i++)
+				_ram[(uint16)(la + i - 2)] = prg[i];
+			_ram[0] = 0x2F;
+			_ram[1] = 0x37;
+			_ram[0xBA] = 8;
+			_ram[0x288] = 0x04;
+			_ram[0x286] = 14;
+			_ram[0x289] = 10;
+			_vic[0x18] = 0x15;
+			_vic[0x20] = 14;
+			_vic[0x21] = 6;
+			_ram[0x0314] = 0x31; _ram[0x0315] = 0xEA;
+			_ram[0x0330] = 0xA5; _ram[0x0331] = 0xF4;
+			_ram[0x0332] = 0xED; _ram[0x0333] = 0xF5;
+			uint16 start;
+			if (la == 0x0801) {
+				// A BASIC line with SYS nnnn
+				start = 0;
+				for (uint i = 6; i < prg.size() && prg[i]; i++) {
+					if (prg[i] == 0x9E) {
+						for (i++; i < prg.size() && (prg[i] == ' ' || (prg[i] >= '0' && prg[i] <= '9')); i++)
+							if (prg[i] != ' ')
+								start = start * 10 + (prg[i] - '0');
+						break;
+					}
+				}
+				if (!start)
+					start = 0x0801;
+			} else {
+				// Loaded over the KERNAL vectors: CLALL's vector starts it
+				start = _ram[0x032C] | (_ram[0x032D] << 8);
+			}
+			_cpu.reset(start);
+			_cpu.sp = 0xF6;
+			_kernalKeyboard = true;
+			debug(1, "DarkLord: booting %s at $%04X", name, start);
+			return true;
+		}
 		return false;
+	}
 	const Common::Array<byte> &dl = _files["DL"];
 	uint16 la = dl[0] | (dl[1] << 8);
 	for (uint i = 2; i < dl.size(); i++)
@@ -268,6 +343,10 @@ uint8 Machine::read(uint16 a) {
 	case kMapKernal:
 		return _kernal[a - 0xE000];
 	default:
+		// Character ROM ($D000-$DFFF with I/O switched out): programs that
+		// copy it to make their own fonts get the stand-in character set
+		if (a >= 0xD000 && a < 0xE000)
+			return _charRom[a & 0x0FFF];
 		return 0;
 	}
 }
@@ -398,7 +477,18 @@ uint8 Machine::keyboardRows(uint8 columns) const {
 }
 
 void Machine::typeChar(int ch) {
-	TypedKey k = { 0, 0, false };
+	TypedKey k = { 0, 0, false, 0 };
+	// PETSCII as the KERNAL would buffer it (upper/graphics character set)
+	if (ch == '\r' || ch == '\n')
+		k.petscii = 13;
+	else if (ch == 8 || ch == 127)
+		k.petscii = 20;
+	else if (ch >= 'a' && ch <= 'z')
+		k.petscii = ch - 32;
+	else if (ch >= 'A' && ch <= 'Z')
+		k.petscii = ch + 0x80;
+	else if (ch >= 32 && ch < 64)
+		k.petscii = ch;
 	int key = ch;
 	if (ch == '\r' || ch == '\n')
 		key = kKeyReturn;
@@ -440,6 +530,12 @@ void Machine::keyboardFrame() {
 	_matrix[k.pa] |= 1 << k.pb;
 	if (k.shift)
 		_matrix[1] |= 0x80;
+	// The KERNAL's interrupt would put it in the keyboard buffer (for games
+	// that use it; Dark Lord reads the keyboard itself)
+	if (_kernalKeyboard && k.petscii && _ram[0xC6] < 10) {
+		_ram[0x277 + _ram[0xC6]] = k.petscii;
+		_ram[0xC6]++;
+	}
 	_keyGap = 2;
 	_keyHold = 3 + _keyGap;
 }
@@ -537,13 +633,55 @@ bool Machine::trap() {
 		kernalSave();
 		return true;
 	case kTrapTalk:
+		_iecTalkSa = 15;
 		_statusPos = 0;
+		_ram[0x90] = 0;
+		rts();
+		return true;
+	case kTrapTksa:
+		_iecTalkSa = _cpu.a & 0x0F;
 		rts();
 		return true;
 	case kTrapAcptr:
-		_cpu.a = _status.empty() ? 13 : (uint8)_status[_statusPos % _status.size()];
-		_statusPos++;
+		_cpu.a = driveRead(_iecTalkSa);
 		_cpu.p &= ~Cpu6502::kFlagC;
+		rts();
+		return true;
+	case kTrapUntlk:
+		rts();
+		return true;
+	case kTrapListen:
+		_iecListening = true;
+		_iecOpening = false;
+		_ram[0x90] = 0;
+		rts();
+		return true;
+	case kTrapSecond:
+		_iecSa = _cpu.a & 0x0F;
+		if ((_cpu.a & 0xF0) == 0xF0) {
+			_iecOpening = true;
+			_iecName.clear();
+		} else if ((_cpu.a & 0xF0) == 0xE0) {
+			driveClose(_iecSa);
+		}
+		rts();
+		return true;
+	case kTrapCiout:
+		if (_iecOpening)
+			_iecName += (char)_cpu.a;
+		else
+			driveWrite(_iecSa, _cpu.a);
+		_cpu.p &= ~Cpu6502::kFlagC;
+		rts();
+		return true;
+	case kTrapUnlsn:
+		if (_iecOpening)
+			driveOpen(_iecSa, _iecName);
+		else if (_iecSa == 15 && !_driveCmd.empty()) {
+			driveCommand(_driveCmd);
+			_driveCmd.clear();
+		}
+		_iecOpening = _iecListening = false;
 		rts();
 		return true;
 	case kTrapSetlfs:
@@ -559,20 +697,151 @@ bool Machine::trap() {
 		rts();
 		return true;
 	case kTrapOpen:
+		kernalOpen();
+		_cpu.p &= ~Cpu6502::kFlagC;
+		rts();
+		return true;
 	case kTrapClose:
+		kernalClose(_cpu.a);
+		_cpu.p &= ~Cpu6502::kFlagC;
+		rts();
+		return true;
 	case kTrapChkin:
-	case kTrapChkout:
+	case kTrapChkout: {
+		Channel *c = channel(_cpu.x);
+		if (!c && _cpu.x != 0) {
+			_cpu.a = 3; // file not open
+			_cpu.p |= Cpu6502::kFlagC;
+		} else {
+			(_cpu.pc == kTrapChkin ? _inLfn : _outLfn) = _cpu.x;
+			_ram[0x90] = 0;
+			_cpu.p &= ~Cpu6502::kFlagC;
+		}
+		rts();
+		return true;
+	}
+	case kTrapClrchn:
+		if (!_driveCmd.empty()) {
+			driveCommand(_driveCmd);
+			_driveCmd.clear();
+		}
+		_inLfn = _outLfn = 0;
+		rts();
+		return true;
+	case kTrapClall:
+		while (!_channels.empty())
+			kernalClose(_channels[0].lfn);
+		_channels.clear();
+		_inLfn = _outLfn = 0;
+		rts();
+		return true;
 	case kTrapChrout:
+		kernalChrout(_cpu.a);
 		_cpu.p &= ~Cpu6502::kFlagC;
 		rts();
 		return true;
 	case kTrapReadst:
-	case kTrapGetin:
-		_cpu.a = 0;
+		_cpu.a = _ram[0x90];
 		rts();
 		return true;
-	case kTrapChrin:
-		_cpu.a = 13;
+	case kTrapGetin:
+		if (_inLfn == 0) {
+			_cpu.a = 0;
+			if (_ram[0xC6]) {
+				_cpu.a = _ram[0x277];
+				memmove(&_ram[0x277], &_ram[0x278], 9);
+				_ram[0xC6]--;
+			}
+		} else {
+			uint8 v = 0;
+			kernalChrin(v);
+			_cpu.a = v;
+		}
+		_cpu.p &= ~Cpu6502::kFlagC;
+		rts();
+		return true;
+	case kTrapChrin: {
+		uint8 v = 0;
+		if (!kernalChrin(v))
+			return true; // waiting for a line of input: stay here
+		_cpu.a = v;
+		_cpu.p &= ~Cpu6502::kFlagC;
+		rts();
+		return true;
+	}
+	case kTrapLinePtr:
+	case kTrapClearLine: {
+		uint16 screen = (_ram[0x288] ? _ram[0x288] : 4) << 8;
+		uint16 line = screen + (_cpu.x % 25) * 40;
+		_ram[0xD1] = line & 0xFF;
+		_ram[0xD2] = line >> 8;
+		if (_cpu.pc == kTrapClearLine) {
+			memset(&_ram[line], 32, 40);
+			for (int i = 0; i < 40; i++)
+				_color[(_cpu.x % 25) * 40 + i] = _ram[0x286] & 15;
+		}
+		rts();
+		return true;
+	}
+	case kTrapColourPtr: {
+		uint16 screen = (_ram[0x288] ? _ram[0x288] : 4) << 8;
+		uint16 c = 0xD800 + (uint16)((_ram[0xD1] | (_ram[0xD2] << 8)) - screen);
+		_ram[0xF3] = c & 0xFF;
+		_ram[0xF4] = c >> 8;
+		rts();
+		return true;
+	}
+	case kTrapCint:
+	case kTrapCintBody:
+		// Screen editor start-up: the VIC as the KERNAL leaves it, a clear
+		// screen in light blue on blue
+		_vic[0x11] = 0x1B;
+		_vic[0x16] = 0xC8;
+		_vic[0x18] = 0x15;
+		_vic[0x20] = 14;
+		_vic[0x21] = 6;
+		_cia2[0] = (_cia2[0] & ~3) | 3;
+		_ram[0x288] = 0x04;
+		_ram[0x286] = 14;
+		_ram[0xC6] = 0;
+		screenOut(147);
+		rts();
+		return true;
+	case kTrapIoinit:
+		_cia2[0] = (_cia2[0] & ~3) | 3;
+		_cia1IcrMask = 0x01;
+		_timerALatch = 0x4025;
+		_cia1[0x0E] |= 0x01;
+		rts();
+		return true;
+	case kTrapRestor:
+		_ram[0x0314] = 0x31; _ram[0x0315] = 0xEA;
+		_ram[0x0316] = 0x66; _ram[0x0317] = 0xFE;
+		_ram[0x0318] = 0x47; _ram[0x0319] = 0xFE;
+		_ram[0x0330] = 0xA5; _ram[0x0331] = 0xF4;
+		_ram[0x0332] = 0xED; _ram[0x0333] = 0xF5;
+		rts();
+		return true;
+	case kTrapClearScreen:
+		screenOut(147);
+		rts();
+		return true;
+	case kTrapHome:
+		screenOut(19);
+		rts();
+		return true;
+	case kTrapPrint:
+		screenOut(_cpu.a);
+		rts();
+		return true;
+	case kTrapPlot:
+		if (_cpu.p & Cpu6502::kFlagC) {
+			_cpu.x = _ram[0xD6];
+			_cpu.y = _ram[0xD3];
+		} else {
+			_ram[0xD6] = _cpu.x;
+			_ram[0xD3] = _cpu.y;
+		}
 		rts();
 		return true;
 	case kTrapStop:
@@ -582,6 +851,399 @@ bool Machine::trap() {
 	default:
 		return false;
 	}
+}
+
+// --- KERNAL channels and the drive ---
+
+Machine::Channel *Machine::channel(uint8 lfn) {
+	for (Channel &c : _channels)
+		if (c.lfn == lfn)
+			return &c;
+	return nullptr;
+}
+
+void Machine::kernalOpen() {
+	uint8 lfn = _ram[0xB8], dev = _ram[0xBA], sa = _ram[0xB9];
+	kernalClose(lfn);
+	Channel c;
+	c.lfn = lfn;
+	c.dev = dev;
+	c.sa = sa & 0x0F;
+	_ram[0x90] = 0;
+	if (dev == 0)
+		c.kind = kChanKeyboard;
+	else if (dev == 3)
+		c.kind = kChanScreen;
+	else {
+		c.kind = kChanDrive;
+		driveOpen(c.sa, zpFilename());
+	}
+	_channels.push_back(c);
+}
+
+void Machine::kernalClose(uint8 lfn) {
+	for (uint i = 0; i < _channels.size(); i++) {
+		if (_channels[i].lfn != lfn)
+			continue;
+		if (_channels[i].kind == kChanDrive)
+			driveClose(_channels[i].sa);
+		_channels.remove_at(i);
+		break;
+	}
+	if (_inLfn == lfn)
+		_inLfn = 0;
+	if (_outLfn == lfn)
+		_outLfn = 0;
+}
+
+// Returns false while waiting for the player to type a line
+bool Machine::kernalChrin(uint8 &v) {
+	Channel *c = channel(_inLfn);
+	if (c && c->kind == kChanDrive) {
+		v = driveRead(c->sa);
+		return true;
+	}
+	if (!_lineReady) {
+		// The screen editor: echo typed keys until RETURN
+		while (_ram[0xC6]) {
+			uint8 k = _ram[0x277];
+			memmove(&_ram[0x277], &_ram[0x278], 9);
+			_ram[0xC6]--;
+			if (k == 13) {
+				screenOut(13);
+				_line += '\r';
+				_lineReady = true;
+				break;
+			}
+			if (k == 20) {
+				if (!_line.empty()) {
+					_line.deleteLastChar();
+					screenOut(157);
+					screenOut(' ');
+					screenOut(157);
+				}
+				continue;
+			}
+			_line += (char)k;
+			screenOut(k);
+		}
+		if (!_lineReady)
+			return false;
+	}
+	v = _line[0];
+	_line.deleteChar(0);
+	if (_line.empty())
+		_lineReady = false;
+	return true;
+}
+
+void Machine::kernalChrout(uint8 v) {
+	Channel *c = channel(_outLfn);
+	if (c && c->kind == kChanDrive)
+		driveWrite(c->sa, v);
+	else
+		screenOut(v);
+}
+
+// --- The drive behind device 8 ---
+
+void Machine::driveOpen(uint8 sa, Common::String name) {
+	DriveChannel &d = _drive[sa & 15];
+	d.data.clear();
+	d.pos = 0;
+	d.name.clear();
+	debug(1, "DarkLord: drive open %d \"%s\"", sa, name.c_str());
+	if (sa == 15) {
+		d.kind = kChanCommand;
+		_status = kStatusOk;
+		_statusPos = 0;
+		if (!name.empty())
+			driveCommand(name);
+		return;
+	}
+	if (name.hasPrefix("#")) {
+		// A buffer in drive memory: "#n" picks one, "#" takes a free one
+		d.kind = kChanBuffer;
+		d.buffer = name.size() > 1 && name[1] >= '0' && name[1] <= '4' ? name[1] - '0' : 2;
+		return;
+	}
+	// A file: "0:NAME,S,W" and the like
+	int colon = name.findFirstOf(':');
+	if (colon >= 0 && colon < 3)
+		name = name.substr(colon + 1);
+	bool writing = sa == 1;
+	int comma = name.findFirstOf(',');
+	if (comma >= 0) {
+		writing |= name.contains(",W");
+		name = name.substr(0, comma);
+	}
+	d.name = name;
+	if (writing) {
+		d.kind = kChanWrite;
+		return;
+	}
+	d.kind = kChanRead;
+	if (!(_host && _host->diskLoad(name, d.data)) && _files.contains(name))
+		d.data = _files[name];
+	if (d.data.empty()) {
+		_status = kStatusNotFound;
+		_statusPos = 0;
+	}
+}
+
+void Machine::driveClose(uint8 sa) {
+	DriveChannel &d = _drive[sa & 15];
+	if (d.kind == kChanWrite) {
+		_files[d.name] = d.data;
+		if (_host)
+			_host->diskSave(d.name, d.data);
+	}
+	if (sa == 15 && !_driveCmd.empty()) {
+		driveCommand(_driveCmd);
+		_driveCmd.clear();
+	}
+	d.kind = kChanNone;
+	d.data.clear();
+}
+
+uint8 Machine::driveRead(uint8 sa) {
+	DriveChannel &d = _drive[sa & 15];
+	if ((sa & 15) == 15 || d.kind == kChanCommand || d.kind == kChanNone) {
+		uint8 v = _status.empty() ? 13 : (uint8)_status[_statusPos % _status.size()];
+		_statusPos++;
+		if (_statusPos >= _status.size())
+			_ram[0x90] |= 0x40;
+		return v;
+	}
+	if (d.kind == kChanBuffer) {
+		uint8 v = _driveRam[0x300 + d.buffer * 256 + (d.pos & 0xFF)];
+		d.pos = (d.pos + 1) & 0xFF;
+		return v;
+	}
+	if (d.pos < d.data.size()) {
+		uint8 v = d.data[d.pos++];
+		if (d.pos == d.data.size())
+			_ram[0x90] |= 0x40;
+		return v;
+	}
+	_ram[0x90] |= 0x42;
+	return 13;
+}
+
+void Machine::driveWrite(uint8 sa, uint8 v) {
+	DriveChannel &d = _drive[sa & 15];
+	if ((sa & 15) == 15) {
+		if (v == 13) {
+			driveCommand(_driveCmd);
+			_driveCmd.clear();
+		} else {
+			_driveCmd += (char)v;
+		}
+		return;
+	}
+	if (d.kind == kChanBuffer) {
+		_driveRam[0x300 + d.buffer * 256 + (d.pos & 0xFF)] = v;
+		d.pos = (d.pos + 1) & 0xFF;
+	} else if (d.kind == kChanWrite) {
+		d.data.push_back(v);
+	}
+}
+
+// The KERNAL screen editor's output, enough for status and prompt text
+void Machine::screenOut(uint8 v) {
+	uint8 &col = _ram[0xD3], &row = _ram[0xD6];
+	uint16 screen = _ram[0x288] << 8;
+	if (!screen)
+		screen = 0x400;
+	switch (v) {
+	case 13:
+	case 141:
+		col = 0;
+		row++;
+		_ram[0xC7] = 0;
+		break;
+	case 147:
+		for (int i = 0; i < 1000; i++) {
+			_ram[screen + i] = 32;
+			_color[i] = _ram[0x286] & 15;
+		}
+		col = row = 0;
+		break;
+	case 19:
+		col = row = 0;
+		break;
+	case 17: row++; break;
+	case 145: if (row) row--; break;
+	case 29: if (++col >= 40) { col = 0; row++; } break;
+	case 157: if (col) col--; break;
+	case 18: _ram[0xC7] = 1; break;
+	case 146: _ram[0xC7] = 0; break;
+	case 14: _vic[0x18] |= 2; break;
+	case 142: _vic[0x18] &= ~2; break;
+	default: {
+		uint8 code;
+		if (v >= 0x20 && v < 0x40) code = v;
+		else if (v >= 0x40 && v < 0x60) code = v - 0x40;
+		else if (v >= 0x60 && v < 0x80) code = v - 0x20;
+		else if (v >= 0xA0 && v < 0xC0) code = v - 0x40;
+		else if (v >= 0xC0) code = v - 0x80;
+		else break; // colours and other controls
+		if (_ram[0xC7])
+			code |= 0x80;
+		if (row < 25 && col < 40) {
+			_ram[screen + row * 40 + col] = code;
+			_color[row * 40 + col] = _ram[0x286] & 15;
+		}
+		if (++col >= 40) {
+			col = 0;
+			row++;
+		}
+		break;
+	}
+	}
+	if (row >= 25) {
+		memmove(&_ram[screen], &_ram[screen + 40], 960);
+		memmove(&_color[0], &_color[40], 960);
+		memset(&_ram[screen + 960], 32, 40);
+		row = 24;
+	}
+}
+
+// Disk sectors for programs that read and write blocks themselves; what
+// they write goes to the host, per disk side
+void Machine::readDiskSector(int track, int sector, byte *out) {
+	Common::Array<byte> data;
+	if (_host && _host->diskLoad(Common::String::format("D%uT%02dS%02d", _currentDisk + 1, track, sector), data) && data.size() == 256) {
+		memcpy(out, data.data(), 256);
+		return;
+	}
+	int o = sectorOffset(track, sector);
+	if (_currentDisk < _disks.size() && o >= 0 && o + 256 <= (int)_disks[_currentDisk].size())
+		memcpy(out, &_disks[_currentDisk][o], 256);
+	else
+		memset(out, 0, 256);
+}
+
+void Machine::writeDiskSector(int track, int sector, const byte *in) {
+	Common::Array<byte> data(in, 256);
+	if (_host)
+		_host->diskSave(Common::String::format("D%uT%02dS%02d", _currentDisk + 1, track, sector), data);
+}
+
+void Machine::driveCommand(const Common::String &command) {
+	Common::String cmd = command;
+	while (!cmd.empty() && (cmd.lastChar() == 13 || cmd.lastChar() == ' '))
+		cmd.deleteLastChar();
+	debug(1, "DarkLord: drive command \"%s\"", cmd.c_str());
+	_status = kStatusOk;
+	_statusPos = 0;
+	// Numbers after the command letters, in any separator style
+	Common::Array<int> n;
+	int i = 0;
+	while (i < (int)cmd.size() && !(cmd[i] == ':' || (cmd[i] >= '0' && cmd[i] <= '9' && i >= 2)))
+		i++;
+	while (i < (int)cmd.size()) {
+		if (cmd[i] >= '0' && cmd[i] <= '9') {
+			int v = 0;
+			while (i < (int)cmd.size() && cmd[i] >= '0' && cmd[i] <= '9')
+				v = v * 10 + (cmd[i++] - '0');
+			n.push_back(v);
+		} else {
+			i++;
+		}
+	}
+	Common::String op = cmd.substr(0, 3);
+	op.toUppercase();
+	bool read = op.hasPrefix("U1") || op.hasPrefix("UA") || op.hasPrefix("B-R");
+	bool write = op.hasPrefix("U2") || op.hasPrefix("UB") || op.hasPrefix("B-W");
+	if ((read || write) && n.size() >= 4) {
+		DriveChannel *c = &_drive[n[0] & 15];
+		if (c->kind != kChanBuffer)
+			return;
+		if (sectorOffset(n[2], n[3]) < 0) {
+			_status = "66,ILLEGAL TRACK OR SECTOR,00,00\r";
+			return;
+		}
+		byte *buf = &_driveRam[0x300 + c->buffer * 256];
+		if (read) {
+			readDiskSector(n[2], n[3], buf);
+			c->pos = op.hasPrefix("B-R") ? 1 : 0;
+		} else {
+			writeDiskSector(n[2], n[3], buf);
+		}
+	} else if (op.hasPrefix("B-P") && n.size() >= 2) {
+		if (_drive[n[0] & 15].kind == kChanBuffer)
+			_drive[n[0] & 15].pos = n[1] & 0xFF;
+	} else if (cmd.hasPrefix("M-W") && cmd.size() >= 6) {
+		// Memory write: address, count, bytes
+		uint16 addr = (byte)cmd[3] | ((byte)cmd[4] << 8);
+		uint count = (byte)cmd[5];
+		for (uint k = 0; k < count && 6 + k < cmd.size(); k++)
+			_driveRam[(addr + k) & 0x7FF] = cmd[6 + k];
+	} else if (cmd.hasPrefix("M-R") && cmd.size() >= 5) {
+		uint16 addr = (byte)cmd[3] | ((byte)cmd[4] << 8);
+		uint count = cmd.size() >= 6 ? (byte)cmd[5] : 1;
+		_status.clear();
+		for (uint k = 0; k < MAX(count, 1u); k++)
+			_status += (char)_driveRam[(addr + k) & 0x7FF];
+	}
+}
+
+// Polarware's Comprehend games load through a drive program that streams
+// a file's sectors two bits at a time. Answered here on the C64 side: the
+// routine that sends the track, sector and count and receives the first
+// sector, and the one that receives each next sector of the chain. Both
+// land in a 256-byte buffer the routine's code points at.
+bool Machine::polarwareTrap() {
+	static const byte kStart[] = { 0x2C, -1 & 0xFF, -1 & 0xFF, 0x10, 0x08, 0x20 };
+	static const byte kNext[] = { 0xA0, 0x00, 0x78, 0xA9, 0x0B, 0x8D, 0x00, 0xDD, 0xAD, 0x00, 0xDD, 0x10, 0xFB };
+	(void)kStart;
+	uint16 pc = _cpu.pc;
+	if (pc < 0x0800 || pc > 0x7F00 || mapOf(pc) != kMapRam)
+		return false;
+	bool next = !memcmp(&_ram[pc], kNext, sizeof(kNext));
+	// The start routine: BIT flag / BPL / JSR upload / ... / JSR listen ...
+	// then, 0x33 bytes on, the receive loop
+	bool start = !next && _ram[pc] == 0x2C && _ram[pc + 3] == 0x10 && _ram[pc + 5] == 0x20 &&
+		!memcmp(&_ram[pc + 0x33], kNext, sizeof(kNext));
+	if (!start && !next)
+		return false;
+	uint16 recv = next ? pc : pc + 0x33;
+	// Where the received bytes go: STA abs,Y at recv + 0x32
+	if (_ram[recv + 0x32] != 0x99)
+		return false;
+	uint16 dest = _ram[recv + 0x33] | (_ram[recv + 0x34] << 8);
+	if (start) {
+		// The M-W command holds track, sector and count
+		uint16 flag = _ram[pc + 1] | (_ram[pc + 2] << 8);
+		_ram[flag] = 0;
+		uint16 params = 0;
+		for (uint16 a = 0x0800; a < 0x7F00; a++) {
+			if (_ram[a] == 'M' && _ram[a + 1] == '-' && _ram[a + 2] == 'W' && _ram[a + 3] == 0x03 && _ram[a + 4] == 0x04 && _ram[a + 5] == 0x03) {
+				params = a + 6;
+				break;
+			}
+		}
+		if (!params)
+			return false;
+		_chainTrack = _ram[params];
+		_chainSector = _ram[params + 1];
+		_chainLeft = _ram[params + 2];
+	}
+	byte sector[256];
+	if (_chainTrack && _chainLeft > 0) {
+		readDiskSector(_chainTrack, _chainSector, sector);
+		_chainTrack = sector[0];
+		_chainSector = sector[1];
+		_chainLeft--;
+	} else {
+		memset(sector, 0, sizeof(sector));
+	}
+	for (int i = 0; i < 256; i++)
+		_ram[(uint16)(dest + i)] = sector[i];
+	_cpu.y = 0;
+	rts();
+	return true;
 }
 
 void Machine::advance(int cycles) {
@@ -765,7 +1427,7 @@ void Machine::runFrame() {
 			guard -= cycles;
 			continue;
 		}
-		if ((mapOf(_cpu.pc) == kMapKernal && trap()) || loaderTrap() || os64Trap())
+		if ((mapOf(_cpu.pc) == kMapKernal && trap()) || loaderTrap() || os64Trap() || polarwareTrap())
 			cycles = 6;
 		else
 			cycles = _cpu.step();
@@ -915,7 +1577,30 @@ void Machine::render(byte *dst, int pitch) const {
 }
 
 // Save states hold the whole machine, so they work anywhere in the game
-static const uint32 kStateVersion = 2;
+static const uint32 kStateVersion = 3;
+
+Common::String Machine::screenText() const {
+	// The text area of a split screen sits low down: take its registers
+	const LineRegs &r = _lines[kFirstVisibleLine + 190];
+	uint16 bank = (3 - (r.dd00 & 3)) * 0x4000;
+	uint16 scr = bank + ((r.d018 >> 4) & 15) * 0x400;
+	Common::String text;
+	for (int row = 0; row < 25; row++) {
+		for (int col = 0; col < 40; col++) {
+			uint8 c = _ram[(uint16)(scr + row * 40 + col)] & 0x7F;
+			char ch = ' ';
+			if (c >= 1 && c <= 26)
+				ch = 'a' + c - 1;
+			else if (c >= 65 && c <= 90)
+				ch = 'a' + c - 65;
+			else if (c >= 32 && c < 64)
+				ch = c;
+			text += ch;
+		}
+		text += '\n';
+	}
+	return text;
+}
 
 void Machine::saveState(Common::WriteStream &s) const {
 	s.writeUint32BE(MKTAG('D', 'L', 'S', 'T'));
@@ -941,6 +1626,7 @@ void Machine::saveState(Common::WriteStream &s) const {
 	s.writeByte(_cia1Icr);
 	s.writeUint32LE(_frame);
 	s.write(_sid, sizeof(_sid));
+	s.writeByte(_currentDisk);
 }
 
 bool Machine::loadState(Common::ReadStream &s) {
@@ -977,6 +1663,8 @@ bool Machine::loadState(Common::ReadStream &s) {
 			for (int r = 0; r < 25; r++)
 				_host->sidWrite(r, _sid[r]);
 	}
+	if (version >= 3)
+		_currentDisk = s.readByte() % MAX<uint>(_disks.size(), 1);
 	memset(_matrix, 0, sizeof(_matrix));
 	_typing.clear();
 	_keyHold = 0;

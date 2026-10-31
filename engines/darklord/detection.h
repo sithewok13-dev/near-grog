@@ -34,13 +34,13 @@ public:
 	}
 
 	const char *getEngineName() const override {
-		return "Dark Lord";
+		return "Dark Lord and 8-bit adventures";
 	}
 
 	ADDetectedGame fallbackDetect(const FileMap &allFiles, const Common::FSList &fslist, ADDetectedGameExtraInfo **extra) const override;
 
 	const char *getOriginalCopyright() const override {
-		return "Dark Lord (C) 1987 Kyle Freeman, Datasoft";
+		return "Dark Lord (C) 1987 Kyle Freeman, Datasoft; Transylvania, Crimson Crown (C) Polarware/Penguin Software";
 	}
 };
 

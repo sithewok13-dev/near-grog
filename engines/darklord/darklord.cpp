@@ -29,6 +29,7 @@
 #include "common/fs.h"
 #include "common/func.h"
 #include "common/memstream.h"
+#include "common/translation.h"
 #include "common/savefile.h"
 #include "common/system.h"
 #include "engines/util.h"
@@ -48,7 +49,9 @@ static const byte kPalette[16 * 3] = {
 };
 
 DarkLordEngine::DarkLordEngine(OSystem *syst, const ADGameDescription *desc) :
-		Engine(syst), _desc(desc), _machine(nullptr), _apple(nullptr), _speaker(nullptr), _sid(nullptr) {
+		Engine(syst), _desc(desc), _machine(nullptr), _apple(nullptr), _speaker(nullptr), _sid(nullptr),
+		_cheat(false), _snapshotLine(0) {
+	_gameId = desc->gameId;
 }
 
 DarkLordEngine::~DarkLordEngine() {
@@ -158,7 +161,126 @@ void DarkLordEngine::typeChar(int ch) {
 	if (_apple)
 		_apple->typeChar(ch);
 	else
-		_machine->typeChar(ch);
+		onTypedKey(ch);
+}
+
+// --- Helpers for the C64 games ---
+
+void DarkLordEngine::setUpGameHelpers() {
+	auto answer = [&](const char *text, const char *keys, bool flip) {
+		PromptAnswer a = { text, keys, flip, false };
+		_answers.push_back(a);
+	};
+	if (_gameId == "transylvania84") {
+		// The crack's intro, and its fast loader (the KERNAL's loads are
+		// what this machine answers)
+		answer("to serve and preserve", " ", false);
+		answer("isable fastloader", "d", false);
+		_deathTexts.push_back("restart the game");
+	} else if (_gameId != "darklord") {
+		// Polarware's Comprehend games
+		_deathTexts.push_back("restart the novel");
+	}
+	if (_gameId == "crimsoncrownc64") {
+		// The second disk: put it in and carry on
+		answer("insert disk", "\r", true);
+		answer("insert side", "\r", true);
+		answer("turn the disk", "\r", true);
+		answer("flip the disk", "\r", true);
+	}
+}
+
+// Every key the player types passes here: the cheat word, and the line
+// being typed (to snapshot the game when it is entered)
+void DarkLordEngine::onTypedKey(int ch) {
+	if (_gameId != "darklord") {
+		if (ch >= 32 && ch < 127) {
+			_recent += (char)tolower(ch);
+			if (_recent.size() > 8)
+				_recent.deleteChar(0);
+			if (_recent == "sithewok") {
+				_cheat = !_cheat;
+				_recent.clear();
+				_machine->typeChar(ch);
+				// Take the word back out of the game's input line
+				for (int i = 0; i < 8; i++)
+					_machine->typeChar(8);
+				_line.clear();
+				_snapshot.clear();
+				g_system->displayMessageOnOSD(_cheat ?
+					Common::U32String("Sithewok: no death, no clock") : Common::U32String("Sithewok off"));
+				return;
+			}
+			_line += (char)ch;
+		} else if (ch == 8) {
+			if (!_line.empty())
+				_line.deleteLastChar();
+		} else if (ch == '\r' && _cheat) {
+			// The state just before this move, to come back to
+			Common::MemoryWriteStreamDynamic w(DisposeAfterUse::YES);
+			_machine->saveState(w);
+			_snapshot = Common::Array<byte>(w.getData(), w.size());
+			_snapshotLine = _line.size();
+		}
+		if (ch == '\r')
+			_line.clear();
+	}
+	_machine->typeChar(ch);
+}
+
+void DarkLordEngine::applyCheatHolds() {
+	if (_gameId == "transylvania84") {
+		// The clock: moves this hour, at $1A03, checked against 71 at $143B
+		static const byte kClock[] = { 0xAD, 0x03, 0x1A, 0xC9, 0x47 };
+		bool match = true;
+		for (uint i = 0; i < sizeof(kClock); i++)
+			match &= _machine->peek(0x143B + i) == kClock[i];
+		if (match)
+			_machine->poke(0x1A03, 0);
+	} else if (_gameId == "transylvania85" || _gameId == "transylvania85b") {
+		// The werewolf (object 33) and vampire (38) stay away. The game
+		// data at $3000 starts with Comprehend's table of pointers; entry
+		// 22 is where object locations live.
+		uint16 locations = _machine->peek(0x302C) | (_machine->peek(0x302D) << 8);
+		if (locations >= 0x3000 && locations < 0x9000) {
+			_machine->poke(locations + 33, 0xFF);
+			_machine->poke(locations + 38, 0xFF);
+		}
+	}
+}
+
+void DarkLordEngine::runHelpers() {
+	if (_gameId == "darklord" || !_machine)
+		return;
+	if (_cheat)
+		applyCheatHolds();
+	if (_machine->frameCount() % 5)
+		return;
+	Common::String text = _machine->screenText();
+	for (PromptAnswer &a : _answers) {
+		bool shown = text.contains(a.text);
+		if (shown && !a.shown) {
+			if (a.flipDisk)
+				_machine->flipDisk();
+			for (const char *k = a.keys; *k; k++)
+				_machine->typeChar(*k);
+		}
+		a.shown = shown;
+	}
+	if (_cheat && !_snapshot.empty()) {
+		for (const Common::String &d : _deathTexts) {
+			if (!text.contains(d))
+				continue;
+			// Back to just before the fatal move, with that move erased
+			Common::MemoryReadStream r(_snapshot.data(), _snapshot.size());
+			_machine->loadState(r);
+			for (uint i = 0; i < _snapshotLine; i++)
+				_machine->typeChar(8);
+			_snapshot.clear();
+			g_system->displayMessageOnOSD(Common::U32String("Sithewok: that move would have killed you"));
+			break;
+		}
+	}
 }
 
 void DarkLordEngine::initSound() {
@@ -256,8 +378,9 @@ Common::Error DarkLordEngine::run() {
 	DiskFinder finder;
 	finder.scan(files);
 	bool apple = _desc->platform == Common::kPlatformApple2;
-	if (apple ? !finder.appleFound() : !finder.c64Found())
-		return Common::Error(Common::kNoGameDataFoundError, "both Dark Lord disk sides");
+	bool darkLord = _gameId == "darklord";
+	if (apple ? !finder.appleFound() : darkLord ? !finder.c64Found() : !finder.gameFound(_gameId))
+		return Common::Error(Common::kNoGameDataFoundError, "the game's disks");
 
 	if (apple) {
 		initGraphics(Apple2::kScreenW, Apple2::kScreenH);
@@ -276,12 +399,17 @@ Common::Error DarkLordEngine::run() {
 		g_system->getPaletteManager()->setPalette(kPalette, 0, 16);
 		_screen.create(Machine::kScreenW, Machine::kScreenH, Graphics::PixelFormat::createFormatCLUT8());
 		_machine = new Machine(this);
-		// Side 2 goes last: the game's saves are sectors on that side
-		for (int i = 0; i < 2; i++) {
-			Common::MemoryReadStream s(finder.side[i].data(), finder.side[i].size());
+		// Dark Lord: side 2 goes last, the game's saves are sectors on it.
+		// Other games: their disks in order, the first in the drive.
+		const Common::Array<Common::Array<byte> > *disks = darkLord ? nullptr : &finder.c64Games[_gameId];
+		uint count = darkLord ? 2 : disks->size();
+		for (uint i = 0; i < count; i++) {
+			const Common::Array<byte> &img = darkLord ? finder.side[i] : (*disks)[i];
+			Common::MemoryReadStream s(img.data(), img.size());
 			if (!_machine->addDisk(s))
 				return Common::kNoGameDataFoundError;
 		}
+		setUpGameHelpers();
 		if (!_machine->boot())
 			return Common::kNoGameDataFoundError;
 		buildCharRom();
@@ -302,6 +430,7 @@ Common::Error DarkLordEngine::run() {
 			_apple->render((byte *)_screen.getPixels(), _screen.pitch);
 		} else {
 			_machine->runFrame();
+			runHelpers();
 			_machine->render((byte *)_screen.getPixels(), _screen.pitch);
 		}
 		g_system->copyRectToScreen(_screen.getPixels(), _screen.pitch, 0, 0, _screen.w, _screen.h);

@@ -26,6 +26,9 @@
 #include "common/array.h"
 #include "common/compression/unzip.h"
 #include "common/fs.h"
+#include "common/hash-str.h"
+#include "common/hashmap.h"
+#include "common/str-array.h"
 #include "common/ptr.h"
 #include "common/stream.h"
 
@@ -163,12 +166,90 @@ public:
 		kAppleSize = 143360
 	};
 
-	Common::Array<byte> side[2];      // C64
-	Common::Array<byte> appleSide[2]; // Apple II
+	Common::Array<byte> side[2];      // C64 Dark Lord
+	Common::Array<byte> appleSide[2]; // Apple II Dark Lord
+	// Other C64 games by game id, their disks in order
+	Common::HashMap<Common::String, Common::Array<Common::Array<byte> > > c64Games;
 
 	bool c64Found() const { return !side[0].empty() && !side[1].empty(); }
 	bool appleFound() const { return !appleSide[0].empty() && !appleSide[1].empty(); }
-	bool found() const { return c64Found() || appleFound(); }
+	/** A complete set of disks for another C64 game. */
+	bool gameFound(const Common::String &id) const {
+		if (!c64Games.contains(id))
+			return false;
+		const Common::Array<Common::Array<byte> > &d = c64Games[id];
+		for (uint i = 0; i < d.size(); i++)
+			if (d[i].empty())
+				return false;
+		return d.size() == disksFor(id);
+	}
+	/** The first other game found complete, or "". */
+	Common::String otherGame() const {
+		static const char *const kIds[] = { "transylvania84", "transylvania85", "transylvania85b", "crimsoncrownc64" };
+		for (const char *id : kIds)
+			if (gameFound(id))
+				return id;
+		return "";
+	}
+	bool found() const { return c64Found() || appleFound() || !otherGame().empty(); }
+
+	static uint disksFor(const Common::String &id) {
+		return id == "crimsoncrownc64" ? 2 : 1;
+	}
+
+	/**
+	 * Recognises the other C64 games by their directories: Transylvania
+	 * (1984, Penguin), the 1985 Polarware Transylvania in its two graphics
+	 * versions, and Crimson Crown's two disks.
+	 */
+	static Common::String gameOf(const Common::Array<byte> &img, uint *disk) {
+		Common::StringArray names;
+		directory(img, names);
+		auto has = [&](const char *n) {
+			for (const Common::String &x : names)
+				if (x == n)
+					return true;
+			return false;
+		};
+		Common::String diskName;
+		int bam = sectorOffset(18, 0);
+		if (bam >= 0 && bam + 256 <= (int)img.size())
+			for (int k = 0; k < 16 && img[bam + 0x90 + k] != 0xA0; k++)
+				diskName += (char)img[bam + 0x90 + k];
+		*disk = 0;
+		if (has("TRANSYLVANIA") && has("R01"))
+			return "transylvania84";
+		if (has("T") && has("G") && has("B"))
+			return has("RA") ? "transylvania85" : "transylvania85b";
+		if (has("CRIMSON CROWN") && has("C") && has("G"))
+			return "crimsoncrownc64";
+		if (diskName == "CROWNB") {
+			*disk = 1;
+			return "crimsoncrownc64";
+		}
+		return "";
+	}
+
+	static void directory(const Common::Array<byte> &img, Common::StringArray &names) {
+		int t = 18, s = 1, guard = 0;
+		while (t >= 1 && t <= 35 && guard++ < 32) {
+			int off = sectorOffset(t, s);
+			if (off < 0 || off + 256 > (int)img.size())
+				break;
+			const byte *dir = &img[off];
+			for (int i = 0; i < 8; i++) {
+				const byte *e = dir + i * 32;
+				if ((e[2] & 7) == 0)
+					continue;
+				Common::String name;
+				for (int k = 0; k < 16 && e[5 + k] != 0xA0; k++)
+					name += (char)e[5 + k];
+				names.push_back(name);
+			}
+			t = dir[0];
+			s = dir[1];
+		}
+	}
 
 	/**
 	 * Returns 1 or 2 for an Apple II Dark Lord side, 0 for anything else.
@@ -290,8 +371,19 @@ private:
 			return;
 		}
 		int n = sideOf(img);
-		if (n && side[n - 1].empty())
+		if (n && side[n - 1].empty()) {
 			side[n - 1] = img;
+			return;
+		}
+		uint disk;
+		Common::String game = gameOf(img, &disk);
+		if (!game.empty()) {
+			Common::Array<Common::Array<byte> > &d = c64Games[game];
+			if (d.size() < disksFor(game))
+				d.resize(disksFor(game));
+			if (disk < d.size() && d[disk].empty())
+				d[disk] = img;
+		}
 	}
 
 	void scanZip(const Common::FSNode &node) {

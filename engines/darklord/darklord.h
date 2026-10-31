@@ -68,6 +68,7 @@ public:
 private:
 	const ADGameDescription *_desc;
 	Machine *_machine;
+	Common::String _gameId;
 	Apple2 *_apple;
 	Audio::QueuingAudioStream *_speaker;
 	SID::SID *_sid;
@@ -77,6 +78,25 @@ private:
 
 	void initSound();
 	void onSidTimer();
+	// Typed-text helpers for the C64 games
+	struct PromptAnswer {
+		const char *text;   // seen on screen (lower case)
+		const char *keys;   // typed once each time it appears
+		bool flipDisk;
+		bool shown;
+	};
+	Common::Array<PromptAnswer> _answers;
+	// "sithewok": snapshot each move, undo deaths, hold timers
+	bool _cheat;
+	Common::String _recent, _line;
+	Common::Array<byte> _snapshot;
+	uint _snapshotLine;
+	Common::StringArray _deathTexts;
+	void setUpGameHelpers();
+	void onTypedKey(int ch);
+	void runHelpers();
+	void applyCheatHolds();
+
 	void buildCharRom();
 	void buildAppleFont();
 	void typeChar(int ch);

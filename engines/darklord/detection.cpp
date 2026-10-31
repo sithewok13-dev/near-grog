@@ -27,6 +27,10 @@ namespace DarkLord {
 
 static const PlainGameDescriptor darkLordGames[] = {
 	{ "darklord", "Dark Lord" },
+	{ "transylvania84", "Transylvania (1984)" },
+	{ "transylvania85", "Transylvania (1985)" },
+	{ "transylvania85b", "Transylvania (1985, other graphics)" },
+	{ "crimsoncrownc64", "Crimson Crown" },
 	{ nullptr, nullptr }
 };
 
@@ -57,6 +61,14 @@ static const ADGameDescription fallbackApple2 = {
 	GUIO2(GUIO_NOMIDI, GUIO_NOSPEECH)
 };
 
+#define OTHER_C64_GAME(id) { id, "", AD_ENTRY1(nullptr, nullptr), Common::EN_ANY, Common::kPlatformC64, ADGF_TESTING, GUIO2(GUIO_NOMIDI, GUIO_NOSPEECH) }
+static const ADGameDescription otherC64Games[] = {
+	OTHER_C64_GAME("transylvania84"),
+	OTHER_C64_GAME("transylvania85"),
+	OTHER_C64_GAME("transylvania85b"),
+	OTHER_C64_GAME("crimsoncrownc64")
+};
+
 static const ADGameDescription fallbackDescription = {
 	"darklord",
 	"",
@@ -79,6 +91,10 @@ ADDetectedGame DarkLordMetaEngineDetection::fallbackDetect(const FileMap &allFil
 		return ADDetectedGame(&DarkLord::fallbackDescription);
 	if (finder.appleFound())
 		return ADDetectedGame(&DarkLord::fallbackApple2);
+	Common::String other = finder.otherGame();
+	for (const ADGameDescription &g : DarkLord::otherC64Games)
+		if (other == g.gameId)
+			return ADDetectedGame(&g);
 	return ADDetectedGame();
 }
 

@@ -33,5 +33,8 @@ You need your own copies of the games. Near-Grog never includes game files.
    original program on a minimal PC (8086, VGA mode 13h, mouse, keyboard, timer, AdLib;
    no Microsoft or IBM code). Point it at the game's folder as installed.
    ScummVM's existing `fool` engine covers the Mac versions of The Fool's Errand.
-5. **The Transylvania games:** both C64 versions of Transylvania, The Crimson Crown,
-   and Transylvania III for PC.
+5. **Transylvania (C64, 1984 and 1985) and Crimson Crown (C64)**: playable, testing, in
+   the same engine as Dark Lord (their own programs on the minimal C64). Disk images
+   loose or zipped. Typing `sithewok` turns a cheat on or off: no death (a fatal move
+   is undone), and the werewolf and vampire, or the clock, leave you alone.
+   Still to come: Transylvania III for PC.
