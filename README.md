@@ -28,9 +28,10 @@ You need your own copies of the games. Near-Grog never includes game files.
    owner's `jk-files` repo under `projects/dark-lord`.
 3. **Living pictures for Infocom games:** an optional pack showing pictures and
    short loops above the text, starting with Zork I.
-4. **The Fool's Errand, DOS colour version** (1989): a new engine, after Dark Lord.
-   ScummVM's existing `fool` engine covers the Mac versions.
-5. **Dondra: A New Beginning** (Questmaster I, DOS, 1991): queued after The Fool's Errand;
-   both DOS games would run their original programs on a shared minimal PC.
-6. **The Transylvania games:** both C64 versions of Transylvania, The Crimson Crown,
+4. **The Fool's Errand, DOS colour version** (1989) and **Dondra: A New Beginning**
+   (Questmaster I, DOS, 1991): playable, testing. The `dosgames` engine runs each game's
+   original program on a minimal PC (8086, VGA mode 13h, mouse, keyboard, timer, AdLib;
+   no Microsoft or IBM code). Point it at the game's folder as installed.
+   ScummVM's existing `fool` engine covers the Mac versions of The Fool's Errand.
+5. **The Transylvania games:** both C64 versions of Transylvania, The Crimson Crown,
    and Transylvania III for PC.
