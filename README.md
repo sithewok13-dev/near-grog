@@ -20,9 +20,10 @@ You need your own copies of the games. Near-Grog never includes game files.
 ## Roadmap
 
 1. iOS build
-2. **Dark Lord** (Datasoft, 1987, C64): playable, testing. The `darklord` engine runs
-   the game's original 6502 code on a minimal C64 (no Commodore ROMs). Needs both
-   disk sides, under any names, loose or in a `.zip`: the cracked release as `.d64`
+2. **Dark Lord** (Datasoft, 1987, C64 and Apple II): playable, testing. The `darklord`
+   engine runs the game's original 6502 code on a minimal C64 or Apple II (no Commodore
+   or Apple ROMs). Apple II: both sides as 140K `.dsk`/`.do` images, loose or zipped.
+   C64: both disk sides, under any names, loose or in a `.zip`: the cracked release as `.d64`
    files, or the original copy-protected disks as `.g64`/`.nib` (or `.d64`) images. Research notes live in the
    owner's `jk-files` repo under `projects/dark-lord`.
 3. **Living pictures for Infocom games:** an optional pack showing pictures and

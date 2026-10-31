@@ -20,7 +20,6 @@
  */
 
 #include "darklord/cpu6502.h"
-#include "darklord/machine.h"
 
 namespace DarkLord {
 
@@ -43,7 +42,7 @@ static const uint8 kCycles[256] = {
 	2, 5, 2, 2, 2, 4, 6, 2, 2, 4, 2, 2, 2, 4, 7, 2
 };
 
-Cpu6502::Cpu6502(Machine *m) : pc(0), a(0), x(0), y(0), sp(0xFF), p(kFlagU | kFlagI), _m(m) {
+Cpu6502::Cpu6502(Bus *m) : pc(0), a(0), x(0), y(0), sp(0xFF), p(kFlagU | kFlagI), _m(m) {
 }
 
 void Cpu6502::reset(uint16 newPc) {

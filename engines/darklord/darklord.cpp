@@ -19,6 +19,9 @@
  *
  */
 
+#include "audio/audiostream.h"
+#include "audio/decoders/raw.h"
+#include "audio/mixer.h"
 #include "audio/sid.h"
 #include "common/config-manager.h"
 #include "common/events.h"
@@ -45,7 +48,7 @@ static const byte kPalette[16 * 3] = {
 };
 
 DarkLordEngine::DarkLordEngine(OSystem *syst, const ADGameDescription *desc) :
-		Engine(syst), _desc(desc), _machine(nullptr), _sid(nullptr) {
+		Engine(syst), _desc(desc), _machine(nullptr), _apple(nullptr), _speaker(nullptr), _sid(nullptr) {
 }
 
 DarkLordEngine::~DarkLordEngine() {
@@ -53,7 +56,9 @@ DarkLordEngine::~DarkLordEngine() {
 		_sid->stop();
 		delete _sid;
 	}
+	_mixer->stopAll();
 	delete _machine;
+	delete _apple;
 	_screen.free();
 }
 
@@ -113,6 +118,49 @@ void DarkLordEngine::buildCharRom() {
 	_machine->setCharRom(rom);
 }
 
+// The Apple II text screen, drawn from the same DOS font (ASCII order)
+void DarkLordEngine::buildAppleFont() {
+	byte glyphs[128 * 8];
+	Graphics::DosFont font;
+	Graphics::Surface glyph;
+	glyph.create(8, 8, Graphics::PixelFormat::createFormatCLUT8());
+	for (int c = 0; c < 128; c++) {
+		glyph.fillRect(Common::Rect(0, 0, 8, 8), 0);
+		font.drawChar(&glyph, c, 0, 0, 1);
+		for (int row = 0; row < 8; row++) {
+			byte bits = 0;
+			for (int col = 0; col < 8; col++)
+				if (*(const byte *)glyph.getBasePtr(col, row))
+					bits |= 0x80 >> col;
+			glyphs[c * 8 + row] = bits;
+		}
+	}
+	glyph.free();
+	_apple->setFont(glyphs);
+}
+
+void DarkLordEngine::appleSound(const int16 *samples, int count) {
+	if (!_speaker)
+		return;
+	// Don't let sound pile up if the game runs ahead of the mixer
+	if (_speaker->numQueuedStreams() > 8)
+		return;
+	int16 *buf = (int16 *)malloc(count * sizeof(int16));
+	memcpy(buf, samples, count * sizeof(int16));
+	byte flags = Audio::FLAG_16BITS;
+#ifdef SCUMM_LITTLE_ENDIAN
+	flags |= Audio::FLAG_LITTLE_ENDIAN;
+#endif
+	_speaker->queueBuffer((byte *)buf, count * sizeof(int16), DisposeAfterUse::YES, flags);
+}
+
+void DarkLordEngine::typeChar(int ch) {
+	if (_apple)
+		_apple->typeChar(ch);
+	else
+		_machine->typeChar(ch);
+}
+
 void DarkLordEngine::initSound() {
 	_sid = SID::Config::create(SID::Config::kSidPAL);
 	if (!_sid || !_sid->init()) {
@@ -165,12 +213,15 @@ bool DarkLordEngine::diskLoad(const Common::String &name, Common::Array<byte> &d
 }
 
 Common::Error DarkLordEngine::saveGameStream(Common::WriteStream *stream, bool isAutosave) {
-	_machine->saveState(*stream);
+	if (_apple)
+		_apple->saveState(*stream);
+	else
+		_machine->saveState(*stream);
 	return Common::kNoError;
 }
 
 Common::Error DarkLordEngine::loadGameStream(Common::SeekableReadStream *stream) {
-	if (!_machine->loadState(*stream))
+	if (!(_apple ? _apple->loadState(*stream) : _machine->loadState(*stream)))
 		return Common::kReadingFailed;
 	return Common::kNoError;
 }
@@ -183,15 +234,15 @@ bool DarkLordEngine::handleEvents() {
 		switch (event.kbd.keycode) {
 		case Common::KEYCODE_RETURN:
 		case Common::KEYCODE_KP_ENTER:
-			_machine->typeChar('\r');
+			typeChar('\r');
 			break;
 		case Common::KEYCODE_BACKSPACE:
 		case Common::KEYCODE_DELETE:
-			_machine->typeChar(8);
+			typeChar(8);
 			break;
 		default:
 			if (event.kbd.ascii >= 32 && event.kbd.ascii < 127)
-				_machine->typeChar(event.kbd.ascii);
+				typeChar(event.kbd.ascii);
 			break;
 		}
 	}
@@ -199,28 +250,43 @@ bool DarkLordEngine::handleEvents() {
 }
 
 Common::Error DarkLordEngine::run() {
-	initGraphics(Machine::kScreenW, Machine::kScreenH);
-	g_system->getPaletteManager()->setPalette(kPalette, 0, 16);
-	_screen.create(Machine::kScreenW, Machine::kScreenH, Graphics::PixelFormat::createFormatCLUT8());
-
-	_machine = new Machine(this);
-	// Both sides, loose or zipped, under any names. Side 2 goes last: the
-	// game's saves are sectors on that side.
+	// Both sides, loose or zipped, under any names
 	Common::FSList files;
 	Common::FSNode(ConfMan.getPath("path")).getChildren(files, Common::FSNode::kListFilesOnly);
 	DiskFinder finder;
 	finder.scan(files);
-	if (!finder.found())
-		return Common::Error(Common::kNoGameDataFoundError, "both Dark Lord disk sides (.d64)");
-	for (int i = 0; i < 2; i++) {
-		Common::MemoryReadStream s(finder.side[i].data(), finder.side[i].size());
-		if (!_machine->addDisk(s))
+	bool apple = _desc->platform == Common::kPlatformApple2;
+	if (apple ? !finder.appleFound() : !finder.c64Found())
+		return Common::Error(Common::kNoGameDataFoundError, "both Dark Lord disk sides");
+
+	if (apple) {
+		initGraphics(Apple2::kScreenW, Apple2::kScreenH);
+		g_system->getPaletteManager()->setPalette(Apple2::palette(), 0, 16);
+		_screen.create(Apple2::kScreenW, Apple2::kScreenH, Graphics::PixelFormat::createFormatCLUT8());
+		_apple = new Apple2(this);
+		for (int i = 0; i < 2; i++)
+			_apple->addDisk(finder.appleSide[i]);
+		if (!_apple->boot())
 			return Common::kNoGameDataFoundError;
+		buildAppleFont();
+		_speaker = Audio::makeQueuingAudioStream(Apple2::kSampleRate, false);
+		_mixer->playStream(Audio::Mixer::kPlainSoundType, nullptr, _speaker);
+	} else {
+		initGraphics(Machine::kScreenW, Machine::kScreenH);
+		g_system->getPaletteManager()->setPalette(kPalette, 0, 16);
+		_screen.create(Machine::kScreenW, Machine::kScreenH, Graphics::PixelFormat::createFormatCLUT8());
+		_machine = new Machine(this);
+		// Side 2 goes last: the game's saves are sectors on that side
+		for (int i = 0; i < 2; i++) {
+			Common::MemoryReadStream s(finder.side[i].data(), finder.side[i].size());
+			if (!_machine->addDisk(s))
+				return Common::kNoGameDataFoundError;
+		}
+		if (!_machine->boot())
+			return Common::kNoGameDataFoundError;
+		buildCharRom();
+		initSound();
 	}
-	if (!_machine->boot())
-		return Common::kNoGameDataFoundError;
-	buildCharRom();
-	initSound();
 
 	// A text adventure: keep the on-screen keyboard up where there is one
 	if (g_system->hasFeature(OSystem::kFeatureVirtualKeyboard))
@@ -231,8 +297,13 @@ Common::Error DarkLordEngine::run() {
 
 	uint32 next = g_system->getMillis();
 	while (handleEvents()) {
-		_machine->runFrame();
-		_machine->render((byte *)_screen.getPixels(), _screen.pitch);
+		if (_apple) {
+			_apple->runFrame();
+			_apple->render((byte *)_screen.getPixels(), _screen.pitch);
+		} else {
+			_machine->runFrame();
+			_machine->render((byte *)_screen.getPixels(), _screen.pitch);
+		}
 		g_system->copyRectToScreen(_screen.getPixels(), _screen.pitch, 0, 0, _screen.w, _screen.h);
 		g_system->updateScreen();
 

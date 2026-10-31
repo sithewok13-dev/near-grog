@@ -47,6 +47,16 @@ static const ADGameDescription gameDescriptions[] = {
 };
 
 // Disks under other names, or inside a .zip: found by their contents
+static const ADGameDescription fallbackApple2 = {
+	"darklord",
+	"",
+	AD_ENTRY1(nullptr, nullptr),
+	Common::EN_ANY,
+	Common::kPlatformApple2,
+	ADGF_TESTING,
+	GUIO2(GUIO_NOMIDI, GUIO_NOSPEECH)
+};
+
 static const ADGameDescription fallbackDescription = {
 	"darklord",
 	"",
@@ -65,9 +75,11 @@ DarkLordMetaEngineDetection::DarkLordMetaEngineDetection() : AdvancedMetaEngineD
 ADDetectedGame DarkLordMetaEngineDetection::fallbackDetect(const FileMap &allFiles, const Common::FSList &fslist, ADDetectedGameExtraInfo **extra) const {
 	DarkLord::DiskFinder finder;
 	finder.scan(fslist);
-	if (!finder.found())
-		return ADDetectedGame();
-	return ADDetectedGame(&DarkLord::fallbackDescription);
+	if (finder.c64Found())
+		return ADDetectedGame(&DarkLord::fallbackDescription);
+	if (finder.appleFound())
+		return ADDetectedGame(&DarkLord::fallbackApple2);
+	return ADDetectedGame();
 }
 
 REGISTER_PLUGIN_STATIC(DARKLORD_DETECTION, PLUGIN_TYPE_ENGINE_DETECTION, DarkLordMetaEngineDetection);

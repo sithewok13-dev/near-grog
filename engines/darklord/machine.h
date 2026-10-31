@@ -55,7 +55,7 @@ public:
  * disk images, the VIC-II registers and raster interrupt, CIA timers and
  * keyboard, and SID register writes. It contains no Commodore ROM code.
  */
-class Machine {
+class Machine : public Bus {
 public:
 	enum {
 		kScreenW = 320,
@@ -76,8 +76,8 @@ public:
 	/** Runs one PAL frame (20 ms) of emulated time. */
 	void runFrame();
 
-	uint8 read(uint16 addr);
-	void write(uint16 addr, uint8 v);
+	uint8 read(uint16 addr) override;
+	void write(uint16 addr, uint8 v) override;
 
 	/** Draws the visible 320x200 screen as C64 colour indexes (0-15). */
 	void render(byte *dst, int pitch) const;

@@ -26,7 +26,13 @@
 
 namespace DarkLord {
 
-class Machine;
+/** Whatever the CPU reads and writes: a C64 or an Apple II. */
+class Bus {
+public:
+	virtual ~Bus() {}
+	virtual uint8 read(uint16 addr) = 0;
+	virtual void write(uint16 addr, uint8 v) = 0;
+};
 
 /**
  * A plain NMOS 6502 core (documented opcodes, decimal mode, IRQ/NMI).
@@ -39,7 +45,7 @@ public:
 		kFlagB = 0x10, kFlagU = 0x20, kFlagV = 0x40, kFlagN = 0x80
 	};
 
-	explicit Cpu6502(Machine *m);
+	explicit Cpu6502(Bus *m);
 
 	void reset(uint16 pc);
 	/** Executes one instruction and returns the cycles it took. */
@@ -52,7 +58,7 @@ public:
 	uint8 a, x, y, sp, p;
 
 private:
-	Machine *_m;
+	Bus *_m;
 
 	uint8 rd(uint16 addr);
 	void wr(uint16 addr, uint8 v);

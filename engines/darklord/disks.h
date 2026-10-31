@@ -145,8 +145,9 @@ private:
 
 /**
  * Finds the two Dark Lord disk sides among a folder's files, whatever they
- * are called, either loose or inside .zip files, as D64 images or as G64
- * or NIB images of the original disks. Sides are told apart by their
+ * are called, either loose or inside .zip files (also zips inside a zip):
+ * the C64 release as D64 images or as G64 or NIB images of the original
+ * disks, the Apple II release as 140K DSK/DO images. Sides are told apart by their
  * directories: side 1 holds "B1" and a boot program ("DL" on the cracked
  * release, "OS64" on the original), side 2 the location files "P1" to "P92".
  *
@@ -158,12 +159,30 @@ public:
 		kD64Size = 174848,
 		kD64SizeWithErrors = 175531,
 		kMaxZipSize = 8 * 1024 * 1024,
-		kMaxGcrSize = 1024 * 1024
+		kMaxGcrSize = 1024 * 1024,
+		kAppleSize = 143360
 	};
 
-	Common::Array<byte> side[2];
+	Common::Array<byte> side[2];      // C64
+	Common::Array<byte> appleSide[2]; // Apple II
 
-	bool found() const { return !side[0].empty() && !side[1].empty(); }
+	bool c64Found() const { return !side[0].empty() && !side[1].empty(); }
+	bool appleFound() const { return !appleSide[0].empty() && !appleSide[1].empty(); }
+	bool found() const { return c64Found() || appleFound(); }
+
+	/**
+	 * Returns 1 or 2 for an Apple II Dark Lord side, 0 for anything else.
+	 * Each side's track 0 carries its own message.
+	 */
+	static int appleSideOf(const Common::Array<byte> &img) {
+		if (img.size() < 4096)
+			return 0;
+		if (hasHighText(img, "An Animated Adventure by Kyle Freeman"))
+			return 1;
+		if (hasHighText(img, "PLEASE BOOT FRONT SIDE OF DISK"))
+			return 2;
+		return 0;
+	}
 
 	void scan(const Common::FSList &files) {
 		for (const Common::FSNode &node : files) {
@@ -228,14 +247,37 @@ private:
 		return (o + sector) * 256;
 	}
 
+	// Text with the top bit set, as the Apple II screen shows it
+	static bool hasHighText(const Common::Array<byte> &img, const char *text) {
+		const uint len = strlen(text);
+		for (uint i = 0; i + len <= 4096; i++) {
+			uint k = 0;
+			while (k < len && img[i + k] == ((byte)text[k] | 0x80))
+				k++;
+			if (k == len)
+				return true;
+		}
+		return false;
+	}
+
 	static bool isDiskName(const Common::String &name) {
 		return name.hasSuffixIgnoreCase(".d64") || name.hasSuffixIgnoreCase(".g64") ||
+			name.hasSuffixIgnoreCase(".dsk") || name.hasSuffixIgnoreCase(".do") ||
 			name.hasSuffixIgnoreCase(".nib");
 	}
 
 	void offer(Common::SeekableReadStream &s) {
 		int64 size = s.size();
 		Common::Array<byte> img;
+		if (size == kAppleSize) {
+			img.resize(kAppleSize);
+			if (s.read(img.data(), kAppleSize) != kAppleSize)
+				return;
+			int n = appleSideOf(img);
+			if (n && appleSide[n - 1].empty())
+				appleSide[n - 1] = img;
+			return;
+		}
 		if (size == kD64Size || size == kD64SizeWithErrors) {
 			img.resize(kD64Size);
 			if (s.read(img.data(), kD64Size) != kD64Size)
@@ -259,18 +301,32 @@ private:
 				return;
 		}
 		Common::ScopedPtr<Common::Archive> zip(Common::makeZipArchive(node, true));
-		if (!zip)
-			return;
+		if (zip)
+			scanArchive(*zip, true);
+	}
+
+	void scanArchive(Common::Archive &zip, bool nested) {
 		Common::ArchiveMemberList members;
-		zip->listMembers(members);
+		zip.listMembers(members);
 		for (const Common::ArchiveMemberPtr &m : members) {
 			if (found())
 				return;
-			if (!isDiskName(m->getFileName()))
-				continue;
-			Common::ScopedPtr<Common::SeekableReadStream> s(m->createReadStream());
-			if (s)
-				offer(*s);
+			Common::String name = m->getFileName();
+			if (isDiskName(name)) {
+				Common::ScopedPtr<Common::SeekableReadStream> s(m->createReadStream());
+				if (s)
+					offer(*s);
+			} else if (nested && name.hasSuffixIgnoreCase(".zip")) {
+				// Disk images are often zipped one by one, then zipped again
+				Common::SeekableReadStream *s = m->createReadStream();
+				if (!s || s->size() > kMaxZipSize) {
+					delete s;
+					continue;
+				}
+				Common::ScopedPtr<Common::Archive> inner(Common::makeZipArchive(s, true));
+				if (inner)
+					scanArchive(*inner, false);
+			}
 		}
 	}
 };

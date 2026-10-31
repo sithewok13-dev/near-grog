@@ -27,7 +27,12 @@
 #include "engines/advancedDetector.h"
 #include "engines/engine.h"
 #include "graphics/surface.h"
+#include "darklord/apple2.h"
 #include "darklord/machine.h"
+
+namespace Audio {
+class QueuingAudioStream;
+}
 
 namespace SID {
 class SID;
@@ -36,12 +41,13 @@ class SID;
 namespace DarkLord {
 
 /**
- * Dark Lord (Datasoft, 1987) for the Commodore 64.
+ * Dark Lord (Datasoft, 1987) for the Commodore 64 and the Apple II.
  *
- * Runs the game's original 6502 code on a minimal C64 (see Machine), so the
- * parser, puzzles, pictures, animations and music all behave as they did.
+ * Runs the game's original 6502 code on a minimal C64 (see Machine) or
+ * Apple II (see Apple2), so the parser, puzzles, pictures, animations and
+ * music all behave as they did.
  */
-class DarkLordEngine : public Engine, public MachineHost {
+class DarkLordEngine : public Engine, public MachineHost, public Apple2Host {
 public:
 	DarkLordEngine(OSystem *syst, const ADGameDescription *desc);
 	~DarkLordEngine() override;
@@ -53,14 +59,17 @@ public:
 	Common::Error saveGameStream(Common::WriteStream *stream, bool isAutosave = false) override;
 	Common::Error loadGameStream(Common::SeekableReadStream *stream) override;
 
-	// MachineHost
+	// MachineHost and Apple2Host
 	void sidWrite(int reg, int value) override;
+	void appleSound(const int16 *samples, int count) override;
 	void diskSave(const Common::String &name, const Common::Array<byte> &data) override;
 	bool diskLoad(const Common::String &name, Common::Array<byte> &data) override;
 
 private:
 	const ADGameDescription *_desc;
 	Machine *_machine;
+	Apple2 *_apple;
+	Audio::QueuingAudioStream *_speaker;
 	SID::SID *_sid;
 	Common::Mutex _sidMutex;
 	Common::Array<uint16> _sidWrites;
@@ -69,6 +78,8 @@ private:
 	void initSound();
 	void onSidTimer();
 	void buildCharRom();
+	void buildAppleFont();
+	void typeChar(int ch);
 	bool handleEvents();
 	Common::String diskFileName(const Common::String &name) const;
 };
