@@ -24,6 +24,7 @@
 #include "backends/graphics/ios/renderbuffer.h"
 #include "backends/graphics/opengl/pipelines/pipeline.h"
 #include "backends/platform/ios7/ios7_osys_main.h"
+#include "backends/platform/ios7/ios7_neargrog_touch.h"
 
 iOSGraphicsManager::iOSGraphicsManager() :
 	_insets{0, 0, 0, 0} {
@@ -105,6 +106,9 @@ void iOSGraphicsManager::hideOverlay() {
 	}
 
 	OpenGL::OpenGLGraphicsManager::hideOverlay();
+	// Near-Grog: the Grim games' touch overlay comes back when ScummVM's
+	// dialogs close (it was only ever told they opened)
+	iOS7_setNearGrogGuiShown(false);
 }
 
 void iOSGraphicsManager::applyTouchSettings() const {

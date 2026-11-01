@@ -36,6 +36,7 @@
 #include "engines/grim/textobject.h"
 #include "engines/grim/font.h"
 #include "engines/grim/movie/movie.h"
+#include "engines/grim/lua/lua.h"
 
 #ifdef IPHONE_IOS7
 // The app's build, from its Info.plist (backends/platform/ios7/ios7_misc.mm)
@@ -50,6 +51,7 @@ namespace Grim {
 int NearGrogTray::_photoFrames = 0;
 Common::Array<int> NearGrogTray::_keys;
 bool NearGrogTray::_keyDown = false;
+uint32 NearGrogTray::_lastTap = 0;
 bool NearGrogTray::_objectNames = false;
 bool NearGrogTray::_roomName = false;
 bool NearGrogTray::_noWalls = false;
@@ -334,74 +336,112 @@ void NearGrogTray::pressKeys() {
 	}
 }
 
+namespace {
+
+// A number from the game's scripts (0 if it isn't one)
+float luaNumber(const char *name) {
+	lua_beginblock();
+	lua_Object o = lua_rawgetglobal(name);
+	float v = lua_isnumber(o) ? lua_getnumber(o) : 0;
+	lua_endblock();
+	return v;
+}
+
+bool inCutscene() {
+	return luaNumber("cutSceneLevel") > 0;
+}
+
+} // End of anonymous namespace
+
 bool NearGrogTray::tap(int x, int y) {
-	if (!isMonkey() || !_keys.empty())
+	if (!_keys.empty())
 		return false;
 
-	// The dialogue choices: centred lines of text, not speech, one under
-	// another. The highlighted one is drawn in a different colour.
-	struct Line {
-		int top, bottom, left, right;
-		Color color;
+	// The text on screen in rows: a list, a menu, the nearby objects. The
+	// row in a colour none of the others has is the highlighted one.
+	struct Row {
+		int top, bottom, left, right, width;
+		Color color; // the colour of its widest text
 	};
-	Common::Array<Line> lines;
+	Common::Array<Row> rows;
 	const float sx = g_driver->getScreenWidth(), sy = g_driver->getScreenHeight();
 	for (TextObject *t : TextObject::getPool()) {
-		if (t->isSpeech() || t->getJustify() != TextObject::CENTER || t->getNumLines() < 1 || !t->getFont())
+		if (t->isSpeech() || t->getNumLines() < 1 || !t->getFont())
 			continue;
 		// Text is placed in 640x480 (coords 0) or 1920x1080 (coords 1 and 2)
 		const float scaleX = sx / (t->getCoords() == 0 ? 640.f : 1920.f);
 		const float scaleY = sy / (t->getCoords() == 0 ? 480.f : 1080.f);
-		Line l;
-		l.top = (int)(t->getLineY(0) * scaleY);
-		l.bottom = (int)((t->getLineY(t->getNumLines() - 1) + t->getFont()->getKernedHeight()) * scaleY);
-		l.left = (int)(t->getLineX(0) * scaleX);
-		l.right = l.left + (int)(t->getFont()->getKernedStringLength(t->getLines()[0]) * scaleX);
-		l.color = t->getFGColor();
-		lines.push_back(l);
+		for (int i = 0; i < t->getNumLines(); i++) {
+			Row r;
+			r.top = (int)(t->getLineY(i) * scaleY);
+			r.bottom = (int)((t->getLineY(i) + t->getFont()->getKernedHeight()) * scaleY);
+			r.left = (int)(t->getLineX(i) * scaleX);
+			r.width = (int)(t->getFont()->getKernedStringLength(t->getLines()[i]) * scaleX);
+			r.right = r.left + r.width;
+			r.color = t->getFGColor();
+			if (r.width <= 0)
+				continue;
+			// Join text on the same row (a coloured first letter, say)
+			bool joined = false;
+			for (Row &o : rows) {
+				const int mid = (r.top + r.bottom) / 2;
+				if (mid >= o.top && mid < o.bottom) {
+					o.left = MIN(o.left, r.left);
+					o.right = MAX(o.right, r.right);
+					if (r.width > o.width) {
+						o.width = r.width;
+						o.color = r.color;
+					}
+					joined = true;
+					break;
+				}
+			}
+			if (!joined)
+				rows.push_back(r);
+		}
 	}
-	if (lines.size() < 2)
+	if (rows.size() < 2)
 		return false;
-	Common::sort(lines.begin(), lines.end(), [](const Line &a, const Line &b) { return a.top < b.top; });
+	Common::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) { return a.top < b.top; });
 
-	// The tapped line (a little slack between lines and at the sides)
 	int tapped = -1;
-	for (uint i = 0; i < lines.size(); i++) {
-		const int pad = (lines[i].bottom - lines[i].top) / 4;
-		if (y >= lines[i].top - pad && y < lines[i].bottom + pad && x >= lines[i].left - 40 && x < lines[i].right + 40)
+	for (uint i = 0; i < rows.size(); i++) {
+		const int pad = (rows[i].bottom - rows[i].top) / 4;
+		if (y >= rows[i].top - pad && y < rows[i].bottom + pad && x >= rows[i].left - 40 && x < rows[i].right + 40)
 			tapped = i;
 	}
 	if (tapped < 0)
 		return false;
 
-	// The highlighted line: the one whose colour none of the others share
 	int highlighted = -1;
-	for (uint i = 0; i < lines.size(); i++) {
+	for (uint i = 0; i < rows.size(); i++) {
 		int same = 0;
-		for (uint j = 0; j < lines.size(); j++)
-			if (i != j && lines[j].color.getRed() == lines[i].color.getRed() &&
-				lines[j].color.getGreen() == lines[i].color.getGreen() && lines[j].color.getBlue() == lines[i].color.getBlue())
+		for (uint j = 0; j < rows.size(); j++)
+			if (i != j && rows[j].color.getRed() == rows[i].color.getRed() &&
+				rows[j].color.getGreen() == rows[i].color.getGreen() && rows[j].color.getBlue() == rows[i].color.getBlue())
 				same++;
 		if (same == 0) {
 			if (highlighted >= 0)
-				return false; // not a menu we understand
+				return false; // not a list we understand
 			highlighted = i;
 		}
 	}
 	if (highlighted < 0)
 		return false;
 
-	// The game scrolls both its lists (nearby objects and dialogue choices)
-	// with Page Up / Page Down, and Enter picks a dialogue line. So a tap
-	// highlights the line; a tap on the highlighted line picks it.
-	if (tapped == highlighted) {
+	// Monkey Island's lists at the bottom of the screen (nearby objects,
+	// dialogue) move with Page Up / Page Down and take Enter for dialogue: a
+	// tap highlights, a tap on the highlighted line picks. The games' menus
+	// (in the middle of the screen) move with the arrow keys: a tap picks.
+	const bool bottomList = rows[0].top > sy * 0.6f;
+	const Common::KeyCode down = bottomList ? Common::KEYCODE_PAGEDOWN : Common::KEYCODE_DOWN;
+	const Common::KeyCode up = bottomList ? Common::KEYCODE_PAGEUP : Common::KEYCODE_UP;
+	for (int i = highlighted; i < tapped; i++)
+		_keys.push_back(down);
+	for (int i = highlighted; i > tapped; i--)
+		_keys.push_back(up);
+	if (!bottomList || tapped == highlighted)
 		_keys.push_back(Common::KEYCODE_RETURN);
-	} else {
-		for (int i = highlighted; i < tapped; i++)
-			_keys.push_back(Common::KEYCODE_PAGEDOWN);
-		for (int i = highlighted; i > tapped; i--)
-			_keys.push_back(Common::KEYCODE_PAGEUP);
-	}
 	_keyDown = false;
 	return true;
 }
@@ -414,13 +454,21 @@ bool NearGrogTray::skip(bool movie) {
 		g_movie->stop();
 		return true;
 	}
-	// Escape skips a movie (the game's override); '.' skips a spoken line
-	_keys.push_back(movie ? Common::KEYCODE_ESCAPE : Common::KEYCODE_PERIOD);
+	// A tap skips the line being spoken ('.'). In a movie, or with a second
+	// tap straight after the first, Escape: the game's own skip, for a
+	// movie, a cutscene or an intro.
+	const uint32 now = g_system->getMillis();
+	const bool doubleTap = now - _lastTap < 400;
+	_lastTap = now;
+	_keys.push_back(movie || doubleTap ? Common::KEYCODE_ESCAPE : Common::KEYCODE_PERIOD);
 	_keyDown = false;
 	return true;
 }
 
 void NearGrogTray::reportTouchMode(bool playing) {
+	// Not over the game's cutscenes either (they keep a count in the scripts)
+	if (playing && inCutscene())
+		playing = false;
 #ifdef IPHONE_IOS7
 	iOS7_setNearGrogTouchMode(!playing ? kNearGrogTouchHidden : (isMonkey() ? kNearGrogTouchMonkey : kNearGrogTouchGrim));
 #endif

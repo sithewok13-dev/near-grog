@@ -39,13 +39,13 @@ public:
 	/** Called with every frame just before it is shown: takes a pending photo. */
 	static void beforeFlip();
 	/**
-	 * A touch at (x, y) in screen pixels. In Escape from Monkey Island, a tap
-	 * on a line of the nearby-objects list or the dialogue choices highlights
-	 * it, and a tap on the highlighted line picks it (the game itself only
-	 * takes Page Up / Page Down and Enter). Returns true if the tap was used.
+	 * A touch at (x, y) in screen pixels on a list of text: the games' menus
+	 * (a tap picks the item: arrow keys, then Enter) or Monkey Island's lists
+	 * at the bottom (a tap highlights the line, a tap on the highlighted line
+	 * picks it: Page Up / Page Down, Enter). Returns true if the tap was used.
 	 */
 	static bool tap(int x, int y);
-	/** A tap anywhere else: skips the line being spoken (or the movie). */
+	/** A tap anywhere else: skips the line being spoken; a double tap (or a tap in a movie) skips the cutscene. */
 	static bool skip(bool movie);
 	/** Tells the iOS touch overlay whether the game is being played. */
 	static void reportTouchMode(bool playing);
@@ -54,6 +54,7 @@ private:
 	static int _photoFrames;
 	static Common::Array<int> _keys; // keycodes to press, one a frame
 	static bool _keyDown;
+	static uint32 _lastTap;
 	static void pressKeys();
 	static bool _objectNames;
 	static bool _roomName;
