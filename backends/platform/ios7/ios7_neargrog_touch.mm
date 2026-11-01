@@ -197,6 +197,9 @@ static void sendEvent(const InternalEvent &e) {
 }
 
 - (bool)shows:(int)i {
+	// No RUN button: the stick's run marker does that (owner, 2026-11-01)
+	if (i == kBtnRun)
+		return false;
 	return !_buttons[i].monkeyOnly || _mode == kNearGrogTouchMonkey;
 }
 

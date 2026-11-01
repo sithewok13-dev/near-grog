@@ -31,7 +31,7 @@
  *    screen, radius 60 pt, 30% dead zone) with Jedi Knight's run marker
  *    100 pt above it: push onto it to run
  *  - bottom right: USE in FIRE's place (42 pt), LOOK / GET / BAG on the arc
- *    around it, RUN in the secondary slot (held)
+ *    around it (no RUN button: the stick's run marker does that)
  *  - top left, Monkey Island only: NEXT and PREV object (a tap is a step)
  *  - top right: QUICK SAVE and QUICK LOAD (0.3 s holds with a ring), MENU
  *    (a tap: the game's menu; held 0.45 s: the Near-Grog tray)
