@@ -640,7 +640,7 @@ public:
 	/**
 	 * Run the global main menu dialog.
 	 */
-	void openMainMenuDialog();
+	virtual void openMainMenuDialog();
 
 	/**
 	 * Display a warning to the user that the game is not fully supported.

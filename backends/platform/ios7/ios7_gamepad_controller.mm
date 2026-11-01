@@ -25,9 +25,47 @@
 #include "common/events.h"
 #include "common/config-manager.h"
 #include "backends/platform/ios7/ios7_gamepad_controller.h"
+#if TARGET_OS_IOS
+#include <CoreText/CoreText.h>
+#endif
 #include "backends/platform/ios7/ios7_video.h"
 #include "backends/platform/ios7/ios7_app_delegate.h"
 #include <GameController/GameController.h>
+
+// Near-Grog: a button label as a shape centred on the button
+#if TARGET_OS_IOS
+static UIBezierPath *nearGrogLabel(NSString *text) {
+	UIFont *font = [UIFont systemFontOfSize:(text.length > 3 ? 11 : 13) weight:UIFontWeightHeavy];
+	NSAttributedString *string = [[NSAttributedString alloc] initWithString:text attributes:@{NSFontAttributeName: font}];
+	CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)string);
+	CGMutablePathRef path = CGPathCreateMutable();
+	CFArrayRef runs = CTLineGetGlyphRuns(line);
+	for (CFIndex r = 0; r < CFArrayGetCount(runs); r++) {
+		CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, r);
+		CTFontRef runFont = (CTFontRef)CFDictionaryGetValue(CTRunGetAttributes(run), kCTFontAttributeName);
+		for (CFIndex i = 0; i < CTRunGetGlyphCount(run); i++) {
+			CGGlyph glyph;
+			CGPoint position;
+			CTRunGetGlyphs(run, CFRangeMake(i, 1), &glyph);
+			CTRunGetPositions(run, CFRangeMake(i, 1), &position);
+			CGPathRef glyphPath = CTFontCreatePathForGlyph(runFont, glyph, NULL);
+			if (glyphPath) {
+				// Glyphs are drawn y-up; UIKit is y-down
+				CGAffineTransform t = CGAffineTransformMake(1, 0, 0, -1, position.x, position.y);
+				CGPathAddPath(path, &t, glyphPath);
+				CGPathRelease(glyphPath);
+			}
+		}
+	}
+	CGRect bounds = CGPathGetBoundingBox(path);
+	UIBezierPath *label = [UIBezierPath bezierPathWithCGPath:path];
+	[label applyTransform:CGAffineTransformMakeTranslation(-CGRectGetMidX(bounds), -CGRectGetMidY(bounds))];
+	CGPathRelease(path);
+	CFRelease(line);
+	[string release];
+	return label;
+}
+#endif
 
 @implementation GamepadController {
 	GCController *_controller;
@@ -43,6 +81,11 @@
 	GCVirtualController *_virtualControllerMiniDpad;
 	API_AVAILABLE(ios(15.0))
 	GCVirtualController *_currentController;
+
+	// Near-Grog: Grim Fandango and Escape from Monkey Island get their own
+	// pad, with triggers and the verbs written on the buttons
+	API_AVAILABLE(ios(15.0))
+	GCVirtualController *_virtualControllerGrim[2];
 	API_AVAILABLE(ios(15.0))
 	GCVirtualControllerConfiguration *_configDpad;
 	API_AVAILABLE(ios(15.0))
@@ -153,6 +196,58 @@
 }
 #endif
 
+#if TARGET_OS_IOS
+// 1 for Grim Fandango, 2 for Escape from Monkey Island, 0 otherwise
+- (int)nearGrogGame {
+	if (![[self view] isInGame] || ConfMan.getActiveDomain() == nullptr ||
+		ConfMan.get("engineid") != "grim")
+		return 0;
+	return ConfMan.get("gameid") == "monkey4" ? 2 : 1;
+}
+
+- (GCVirtualController *)grimController API_AVAILABLE(ios(15.0)) {
+	const bool monkey = [self nearGrogGame] == 2;
+	GCVirtualController *&controller = _virtualControllerGrim[monkey ? 1 : 0];
+	if (controller != nil)
+		return controller;
+
+	GCVirtualControllerConfiguration *config = [[GCVirtualControllerConfiguration alloc] init];
+	NSMutableSet<NSString *> *elements = [NSMutableSet setWithObjects:GCInputLeftThumbstick, GCInputButtonA,
+		GCInputButtonB, GCInputButtonX, GCInputButtonY, GCInputLeftShoulder, GCInputRightShoulder, nil];
+	if (monkey) {
+		[elements addObject:GCInputLeftTrigger];
+		[elements addObject:GCInputRightTrigger];
+	}
+	config.elements = elements;
+	controller = [[GCVirtualController alloc] initWithConfiguration:config];
+	[config release];
+
+	// The verbs Grim's keymaps give each button
+	if (@available(iOS 16.0, *)) {
+		NSMutableDictionary<NSString *, NSString *> *labels = [NSMutableDictionary dictionaryWithDictionary:@{
+			GCInputButtonA: @"USE",
+			GCInputButtonB: @"GET",
+			GCInputButtonX: @"LOOK",
+			GCInputButtonY: @"BAG",
+			GCInputRightShoulder: @"RUN",
+			GCInputLeftShoulder: monkey ? @"EXIT" : @"TRAY"
+		}];
+		if (monkey) {
+			labels[GCInputLeftTrigger] = @"PREV";
+			labels[GCInputRightTrigger] = @"NEXT";
+		}
+		for (NSString *element in labels) {
+			NSString *text = labels[element];
+			[controller updateConfigurationForElement:element configuration:^GCVirtualControllerElementConfiguration *(GCVirtualControllerElementConfiguration *configuration) {
+				configuration.path = nearGrogLabel(text);
+				return configuration;
+			}];
+		}
+	}
+	return controller;
+}
+#endif
+
 - (void)virtualController:(bool)connect {
 #if TARGET_OS_IOS
 #ifdef __IPHONE_15_0
@@ -167,6 +262,9 @@
 			controller = ConfMan.getBool("gamepad_controller_minimal_layout") ? _virtualControllerMiniDpad : _virtualControllerDpad;
 			break;
 		}
+
+		if ([self nearGrogGame] != 0)
+			controller = [self grimController];
 
 		if (_currentController != controller) {
 			[_currentController disconnect];
@@ -296,6 +394,14 @@
 			};
 		}
 #endif
+		// Near-Grog: the triggers (Escape from Monkey Island picks objects with them)
+		_controller.extendedGamepad.leftTrigger.valueChangedHandler = ^(GCControllerButtonInput * _Nonnull button, float value, BOOL pressed) {
+			[[self view] addEvent:InternalEvent(kInputJoystickAxisMotion, Common::JOYSTICK_AXIS_LEFT_TRIGGER, (int)(value * (float)Common::JOYAXIS_MAX))];
+		};
+		_controller.extendedGamepad.rightTrigger.valueChangedHandler = ^(GCControllerButtonInput * _Nonnull button, float value, BOOL pressed) {
+			[[self view] addEvent:InternalEvent(kInputJoystickAxisMotion, Common::JOYSTICK_AXIS_RIGHT_TRIGGER, (int)(value * (float)Common::JOYAXIS_MAX))];
+		};
+
 		_controller.extendedGamepad.leftShoulder.valueChangedHandler = ^(GCControllerButtonInput * _Nonnull button, float value, BOOL pressed) {
 			[self handleJoystickButtonAction:Common::JOYSTICK_BUTTON_LEFT_SHOULDER isPressed:pressed];
 		};

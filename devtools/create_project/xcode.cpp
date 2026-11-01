@@ -443,6 +443,7 @@ void XcodeProvider::setupFrameworksBuildPhase(const BuildSetup &setup) {
 	DEF_SYSFRAMEWORK("Cocoa");
 	DEF_SYSFRAMEWORK("CoreAudio");
 	DEF_SYSFRAMEWORK("CoreMIDI");
+	DEF_SYSFRAMEWORK("CoreText");
 	DEF_SYSFRAMEWORK("CoreGraphics");
 	DEF_SYSFRAMEWORK("CoreFoundation");
 	DEF_SYSFRAMEWORK("Foundation");
@@ -736,6 +737,8 @@ void XcodeProvider::setupFrameworksBuildPhase(const BuildSetup &setup) {
 		frameworks_iOS.push_back("CoreMIDI.framework");
 		// Near-Grog: always linked, for the audio session (sound with the mute switch on)
 		frameworks_iOS.push_back("AVFAudio.framework");
+		// Near-Grog: the labels on the touch gamepad's buttons
+		frameworks_iOS.push_back("CoreText.framework");
 
 		if (CONTAINS_DEFINE(setup.defines, "USE_FAAD")) {
 			frameworks_iOS.push_back(getLibString("faad", setup.useXCFramework));

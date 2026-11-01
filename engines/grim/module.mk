@@ -103,6 +103,7 @@ MODULE_OBJS := \
 	gfx_opengl_shaders.o \
 	gfx_opengl.o \
 	grim.o \
+	neargrog_tray.o \
 	grim_controls.o \
 	inputdialog.o \
 	iris.o \

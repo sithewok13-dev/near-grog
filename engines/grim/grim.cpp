@@ -56,6 +56,7 @@
 #include "engines/grim/md5checkdialog.h"
 #include "engines/grim/debug.h"
 #include "engines/grim/grim.h"
+#include "engines/grim/neargrog_tray.h"
 #include "engines/grim/lua.h"
 #include "engines/grim/lua_v1.h"
 #include "engines/grim/emi/poolsound.h"
@@ -547,6 +548,12 @@ Common::KeymapArray GrimEngine::initKeymapsGrim(const char *target) {
 	act->addDefaultInputMapping("JOY_GUIDE");
 	engineKeyMap->addAction(act);
 
+	// Near-Grog: the tray (chapters, free camera, photo, cheats)
+	act = new Action("NGTRAY", _("Near-Grog tray"));
+	act->setEvent(EVENT_MAINMENU);
+	act->addDefaultInputMapping("JOY_LEFT_SHOULDER");
+	engineKeyMap->addAction(act);
+
 	act = new Action("PAUSE", _("Pause"));
 	act->setKeyEvent(KeyState(KEYCODE_PAUSE));
 	engineKeyMap->addAction(act);
@@ -979,6 +986,7 @@ void GrimEngine::doFlip() {
 	if (_showFps && _mode != DrawMode)
 		g_driver->drawEmergString(550, 25, _fps, Color(255, 255, 255));
 
+	NearGrogTray::beforeFlip();
 	if (_flipEnable)
 		g_driver->flipBuffer();
 
@@ -1661,6 +1669,12 @@ void GrimEngine::clearEventQueue() {
 	for (int i = 0; i < KEYCODE_EXTRA_LAST; ++i) {
 		_controlsState[i] = false;
 	}
+}
+
+// Near-Grog: the in-game menu button opens the Near-Grog tray, which leads
+// on to ScummVM's own menu
+void GrimEngine::openMainMenuDialog() {
+	NearGrogTray::open();
 }
 
 bool GrimEngine::hasFeature(EngineFeature f) const {
