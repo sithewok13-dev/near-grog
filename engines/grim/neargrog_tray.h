@@ -49,6 +49,8 @@ public:
 	static bool skip(bool movie);
 	/** Tells the iOS touch overlay whether the game is being played. */
 	static void reportTouchMode(bool playing);
+	/** Near-Grog's touch controls (true) or ScummVM's own, for this game. */
+	static bool nearGrogControls();
 
 private:
 	static int _photoFrames;

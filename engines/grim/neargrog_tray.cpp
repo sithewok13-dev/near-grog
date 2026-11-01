@@ -19,6 +19,7 @@
  *
  */
 
+#include "common/config-manager.h"
 #include "common/savefile.h"
 #include "common/system.h"
 #include "common/translation.h"
@@ -64,7 +65,9 @@ enum {
 	kCmdCamera = 'fcam',
 	kCmdPhoto = 'phot',
 	kCmdCheats = 'chea',
-	kCmdScummVM = 'smvm'
+	kCmdScummVM = 'smvm',
+	kCmdKeyboard = 'kbrd',
+	kCmdControls = 'ctrl'
 };
 
 struct Chapter {
@@ -132,8 +135,9 @@ const Chapter kGrimChapters[] = {
 class TrayDialog : public GUI::Dialog {
 public:
 	TrayDialog(bool monkey) : GUI::Dialog(0, 0, 0, 0) {
-		const char *const labels[] = { "Resume", "Chapter select", monkey ? "Free camera" : "Camera angles", "Take a photo", "Cheats", "ScummVM menu" };
-		const uint32 cmds[] = { kCmdResume, kCmdChapters, kCmdCamera, kCmdPhoto, kCmdCheats, kCmdScummVM };
+		const char *const labels[] = { "Resume", "Chapter select", monkey ? "Free camera" : "Camera angles", "Take a photo", "Cheats", "Keyboard",
+			NearGrogTray::nearGrogControls() ? "Controls: Near-Grog" : "Controls: ScummVM", "ScummVM menu" };
+		const uint32 cmds[] = { kCmdResume, kCmdChapters, kCmdCamera, kCmdPhoto, kCmdCheats, kCmdKeyboard, kCmdControls, kCmdScummVM };
 		const int n = ARRAYSIZE(labels);
 
 		// Sized from the screen and the theme's font, so the buttons are big
@@ -210,6 +214,19 @@ void NearGrogTray::open() {
 		break;
 	case kCmdCheats:
 		cheats();
+		break;
+	case kCmdKeyboard:
+		// The iOS keyboard (MENU closes it again)
+		g_system->setFeatureState(OSystem::kFeatureVirtualKeyboard, true);
+		break;
+	case kCmdControls:
+		// Near-Grog's touch controls, or ScummVM's own (its corner icons,
+		// gestures and, if switched on, Apple's gamepad); kept for this game.
+		// ScummVM's menu button still opens this tray.
+		ConfMan.setBool("neargrog_touch", !nearGrogControls());
+		ConfMan.flushToDisk();
+		g_system->displayMessageOnOSD(Common::U32String(nearGrogControls() ?
+			"Near-Grog touch controls" : "ScummVM's touch controls (the menu button opens this tray)"));
 		break;
 	case kCmdScummVM:
 		g_grim->Engine::openMainMenuDialog();
@@ -465,7 +482,13 @@ bool NearGrogTray::skip(bool movie) {
 	return true;
 }
 
+bool NearGrogTray::nearGrogControls() {
+	return !ConfMan.hasKey("neargrog_touch") || ConfMan.getBool("neargrog_touch");
+}
+
 void NearGrogTray::reportTouchMode(bool playing) {
+	if (!nearGrogControls())
+		playing = false;
 	// Not over the game's cutscenes either (they keep a count in the scripts)
 	if (playing && inCutscene())
 		playing = false;
