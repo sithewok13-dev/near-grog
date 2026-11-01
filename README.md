@@ -31,7 +31,8 @@ You need your own copies of the games. Near-Grog never includes game files.
 4. **The Fool's Errand, DOS colour version** (1989) and **Dondra: A New Beginning**
    (Questmaster I, DOS, 1991): playable, testing. The `dosgames` engine runs each game's
    original program on a minimal PC (8086, VGA mode 13h, mouse, keyboard, timer, AdLib;
-   no Microsoft or IBM code). Point it at the game's folder as installed.
+   no Microsoft or IBM code). Point it at the game's folder as installed, or at a
+   folder holding the game's `.zip` (over 50 MB, it asks you to unzip it).
    ScummVM's existing `fool` engine covers the Mac versions of The Fool's Errand.
 5. **Transylvania (C64, 1984 and 1985) and Crimson Crown (C64)**: playable, testing, in
    the same engine as Dark Lord (their own programs on the minimal C64). Disk images
