@@ -33,6 +33,12 @@
 #endif
 
 #include "common/translation.h"
+#include "common/archive.h"
+#include "common/compression/unzip.h"
+#include "common/ptr.h"
+#include "common/stream.h"
+#include "engines/metaengine.h"
+#include "gui/message.h"
 
 namespace GUI {
 
@@ -136,6 +142,13 @@ void BrowserDialog::handleCommand(CommandSender *sender, uint32 cmd, uint32 data
 			// If nothing is selected in the list widget, choose the current dir.
 			// Else, choose the dir that is selected.
 			int selection = _fileList->getSelected();
+			if (selection >= 0 && isZip(_nodeContent[selection])) {
+				if (chooseZip(_nodeContent[selection])) {
+					setResult(1);
+					close();
+				}
+				break;
+			}
 			if (selection >= 0)
 				_choice = _nodeContent[selection];
 			else
@@ -165,6 +178,11 @@ void BrowserDialog::handleCommand(CommandSender *sender, uint32 cmd, uint32 data
 		if (_nodeContent[data].isDirectory()) {
 			_node = _nodeContent[data];
 			updateListing();
+		} else if (isZip(_nodeContent[data])) {
+			if (chooseZip(_nodeContent[data])) {
+				setResult(1);
+				close();
+			}
 		} else if (!_isDirBrowser) {
 			_choice = _nodeContent[data];
 			setResult(1);
@@ -175,7 +193,7 @@ void BrowserDialog::handleCommand(CommandSender *sender, uint32 cmd, uint32 data
 		// We do not allow selecting directories in directory
 		// browser mode, thus we will invalidate the selection
 		// when the user selects a directory over here.
-		if (data != (uint32)-1 && _isDirBrowser && !_nodeContent[data].isDirectory())
+		if (data != (uint32)-1 && _isDirBrowser && !_nodeContent[data].isDirectory() && !isZip(_nodeContent[data]))
 			_fileList->setSelected(-1);
 		break;
 	case kHiddenCmd:
@@ -213,7 +231,7 @@ void BrowserDialog::updateListing() {
 	Common::U32String color = ListWidget::getThemeColor(ThemeEngine::kFontColorNormal);
 	for (auto &node : _nodeContent) {
 		if (_isDirBrowser) {
-			if (node.isDirectory())
+			if (node.isDirectory() || isZip(node))
 				color = ListWidget::getThemeColor(ThemeEngine::kFontColorNormal);
 			else
 				color = ListWidget::getThemeColor(ThemeEngine::kFontColorAlternate);
@@ -230,6 +248,107 @@ void BrowserDialog::updateListing() {
 
 	// Finally, redraw
 	g_gui.scheduleTopDialogRedraw();
+}
+
+bool BrowserDialog::isZip(const Common::FSNode &node) const {
+	return _unzipGames && _isDirBrowser && !node.isDirectory() && node.getName().hasSuffixIgnoreCase(".zip");
+}
+
+namespace {
+
+// Unzips every file of zip into dest, keeping the zip's folders
+bool unzipTo(Common::Archive &zip, const Common::FSNode &dest) {
+	Common::ArchiveMemberList members;
+	zip.listMembers(members);
+	Common::Array<byte> buffer(64 * 1024);
+	for (const Common::ArchiveMemberPtr &m : members) {
+		if (m->isDirectory())
+			continue;
+		Common::StringArray parts = m->getPathInArchive().splitComponents();
+		Common::FSNode dir = dest;
+		for (uint i = 0; i + 1 < parts.size(); i++) {
+			if (parts[i].empty())
+				continue;
+			Common::FSNode sub = dir.getChild(parts[i]);
+			if (!sub.exists() && !sub.createDirectory())
+				return false;
+			dir = sub;
+		}
+		if (parts.empty() || parts.back().empty())
+			continue;
+		Common::ScopedPtr<Common::SeekableReadStream> in(m->createReadStream());
+		Common::ScopedPtr<Common::SeekableWriteStream> out(dir.getChild(parts.back()).createWriteStream(false));
+		if (!in || !out)
+			return false;
+		while (!in->eos() && !in->err()) {
+			uint32 n = in->read(buffer.data(), buffer.size());
+			if (n == 0)
+				break;
+			if (out->write(buffer.data(), n) != n)
+				return false;
+		}
+		out->finalize();
+	}
+	return true;
+}
+
+bool hasGame(const Common::FSNode &dir) {
+	Common::FSList files;
+	if (!dir.getChildren(files, Common::FSNode::kListAll))
+		return false;
+	DetectionResults results = EngineMan.detectGames(files);
+	return !results.listRecognizedGames().empty();
+}
+
+} // End of anonymous namespace
+
+bool BrowserDialog::chooseZip(const Common::FSNode &zip) {
+	g_system->displayMessageOnOSD(Common::U32String::format("Unzipping %s...", zip.getName().c_str()));
+	g_system->updateScreen();
+	if (!unzipGame(zip, _choice)) {
+		MessageDialog error(Common::U32String::format("Couldn't unzip %s.", zip.getName().c_str()));
+		error.runModal();
+		return false;
+	}
+	return true;
+}
+
+bool BrowserDialog::unzipGame(const Common::FSNode &zip, Common::FSNode &result) {
+	Common::String name = zip.getName();
+	name = name.substr(0, name.size() - 4);
+	Common::FSNode dest = zip.getParent().getChild(name);
+	Common::FSNode marker = dest.getChild(".neargrog-unzipped");
+
+	// Unzip once; choosing the same zip again reuses the folder
+	if (!marker.exists()) {
+		Common::ScopedPtr<Common::Archive> archive(Common::makeZipArchive(zip));
+		if (!archive || !(dest.exists() || dest.createDirectory()) || !unzipTo(*archive, dest))
+			return false;
+		Common::ScopedPtr<Common::SeekableWriteStream> m(marker.createWriteStream(false));
+		if (m)
+			m->finalize();
+	}
+
+	// The game may sit a few folders down (installers' folders, drivers):
+	// pick the first folder, nearest first, that holds a game ScummVM knows
+	Common::FSList queue;
+	queue.push_back(dest);
+	for (uint i = 0; i < queue.size() && i < 300; i++) {
+		if (hasGame(queue[i])) {
+			result = queue[i];
+			return true;
+		}
+		Common::FSList subs;
+		if (queue[i].getChildren(subs, Common::FSNode::kListDirectoriesOnly)) {
+			Common::sort(subs.begin(), subs.end());
+			for (const Common::FSNode &sub : subs)
+				queue.push_back(sub);
+		}
+	}
+	// Nothing recognised: hand over the folder, and the usual
+	// "couldn't find any game" message follows
+	result = dest;
+	return true;
 }
 
 } // End of namespace GUI

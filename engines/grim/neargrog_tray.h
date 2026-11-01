@@ -22,6 +22,8 @@
 #ifndef GRIM_NEARGROG_TRAY_H
 #define GRIM_NEARGROG_TRAY_H
 
+#include "common/array.h"
+
 namespace Grim {
 
 /**
@@ -36,9 +38,18 @@ public:
 	static void open();
 	/** Called with every frame just before it is shown: takes a pending photo. */
 	static void beforeFlip();
+	/**
+	 * A touch at (x, y) in screen pixels. In Escape from Monkey Island, a tap
+	 * on one of the dialogue choices picks it (the game itself only takes the
+	 * arrow keys and Enter). Returns true if the tap was used.
+	 */
+	static bool tap(int x, int y);
 
 private:
 	static int _photoFrames;
+	static Common::Array<int> _keys; // keycodes to press, one a frame
+	static bool _keyDown;
+	static void pressKeys();
 	static bool _objectNames;
 	static bool _roomName;
 	static bool _noWalls;

@@ -203,6 +203,7 @@ protected:
 	void pauseEngineIntern(bool pause) override;
 
 	void handleControls(Common::EventType type, const Common::KeyState &key);
+	friend class NearGrogTray; // Near-Grog: presses keys for touch taps
 	void handleChars(Common::EventType type, const Common::KeyState &key);
 	void handleJoyAxis(byte axis, int16 position);
 	void handleMouseAxis(byte axis, int16 position);

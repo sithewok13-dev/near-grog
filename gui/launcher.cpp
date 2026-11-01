@@ -319,6 +319,7 @@ void LauncherDialog::build() {
 
 	// Create file browser dialog
 	_browser = new BrowserDialog(_("Select directory with game data"), true);
+	_browser->setUnzipGames(true); // Near-Grog: zips can be picked too
 
 	// Create Load dialog
 	_loadDialog = new SaveLoadChooser(false);

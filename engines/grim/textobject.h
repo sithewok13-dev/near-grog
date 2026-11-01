@@ -100,6 +100,7 @@ public:
 	int getLineY(int line) const;
 
 	void setIsSpeech() { _isSpeech = true; }
+	bool isSpeech() const { return _isSpeech; }
 	void setBlastDraw() { _blastDraw = true; }
 	bool isBlastDraw() { return _blastDraw; }
 

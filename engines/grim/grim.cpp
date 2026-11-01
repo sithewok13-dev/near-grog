@@ -1129,6 +1129,9 @@ void GrimEngine::mainLoop() {
 			if (type == Common::EVENT_LBUTTONDOWN) {
 				_cursorX = event.mouse.x;
 				_cursorY = event.mouse.y;
+				// Near-Grog: a tap on one of Monkey Island's dialogue choices
+				if (NearGrogTray::tap(event.mouse.x, event.mouse.y))
+					continue;
 				Common::KeyState k;
 				k.keycode = (Common::KeyCode)KEYCODE_MOUSE_B1;
 				handleControls(Common::EVENT_KEYDOWN, k);

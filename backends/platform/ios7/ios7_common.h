@@ -106,6 +106,8 @@ void iOS7_buildSharedOSystemInstance();
 void iOS7_main(int argc, char **argv);
 Common::String iOS7_getDocumentsDir();
 Common::String iOS7_getBuildVersion();
+bool iOS7_gamepadWanted();
+const char *iOS7_gamepadSetting();
 Common::String iOS7_getAppBundleDir();
 TouchMode iOS7_getCurrentTouchMode();
 void iOS7_setSafeAreaInsets(int l, int r, int t, int b);

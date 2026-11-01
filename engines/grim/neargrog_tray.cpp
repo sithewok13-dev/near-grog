@@ -25,6 +25,7 @@
 #include "graphics/surface.h"
 #include "gui/chooser.h"
 #include "gui/dialog.h"
+#include "gui/gui-manager.h"
 #include "gui/widget.h"
 #include "image/png.h"
 #include "engines/grim/bitmap.h"
@@ -32,6 +33,8 @@
 #include "engines/grim/grim.h"
 #include "engines/grim/neargrog_tray.h"
 #include "engines/grim/set.h"
+#include "engines/grim/textobject.h"
+#include "engines/grim/font.h"
 
 #ifdef IPHONE_IOS7
 // The app's build, from its Info.plist (backends/platform/ios7/ios7_misc.mm)
@@ -43,6 +46,8 @@ Common::String iOS7_getBuildVersion();
 namespace Grim {
 
 int NearGrogTray::_photoFrames = 0;
+Common::Array<int> NearGrogTray::_keys;
+bool NearGrogTray::_keyDown = false;
 bool NearGrogTray::_objectNames = false;
 bool NearGrogTray::_roomName = false;
 bool NearGrogTray::_noWalls = false;
@@ -123,27 +128,48 @@ const Chapter kGrimChapters[] = {
 class TrayDialog : public GUI::Dialog {
 public:
 	TrayDialog(bool monkey) : GUI::Dialog(0, 0, 0, 0) {
-		const int w = MIN<int>(g_system->getOverlayWidth() - 40, 320);
-		const int bh = 28, gap = 8;
 		const char *const labels[] = { "Resume", "Chapter select", monkey ? "Free camera" : "Camera angles", "Take a photo", "Cheats", "ScummVM menu" };
 		const uint32 cmds[] = { kCmdResume, kCmdChapters, kCmdCamera, kCmdPhoto, kCmdCheats, kCmdScummVM };
 		const int n = ARRAYSIZE(labels);
-		const int h = 50 + n * (bh + gap) + 14;
-		_x = (g_system->getOverlayWidth() - w) / 2;
-		_y = MAX<int>(10, (g_system->getOverlayHeight() - h) / 2);
-		_w = w;
-		_h = h;
-		new GUI::StaticTextWidget(this, 10, 12, w - 20, 20,
-			Common::U32String(monkey ? "Near-Grog: Escape from Monkey Island" : "Near-Grog: Grim Fandango"), Graphics::kTextAlignCenter);
+
+		// Sized from the screen and the theme's font, so the buttons are big
+		// enough for a finger on a phone. Two columns when one won't fit.
+		const int sw = g_system->getOverlayWidth(), sh = g_system->getOverlayHeight();
+		const int fh = g_gui.getFontHeight();
+		const int small = g_gui.getFontHeight(GUI::ThemeEngine::kFontStyleTooltip);
+		const int bh = MAX(fh * 2, MIN(sw, sh) / 8);
+		const int gap = bh / 4;
+		const int margin = fh;
+		int textW = 0;
 		for (int i = 0; i < n; i++)
-			new GUI::ButtonWidget(this, 20, 42 + i * (bh + gap), w - 40, bh, Common::U32String(labels[i]), Common::U32String(), cmds[i]);
+			textW = MAX(textW, g_gui.getStringWidth(Common::String(labels[i])));
+		int bw = MAX(textW + fh * 3, MIN(sw, sh) / 2);
+		const int titleH = fh * 2;
+		const int versionH = small * 2;
+		int cols = 1;
+		if (margin * 2 + titleH + n * (bh + gap) + versionH > sh - 20)
+			cols = 2;
+		const int rows = (n + cols - 1) / cols;
+		bw = MIN(bw, (sw - 40 - margin * 2 - gap * (cols - 1)) / cols);
+		_w = margin * 2 + cols * bw + (cols - 1) * gap;
+		_h = margin * 2 + titleH + rows * (bh + gap) + versionH;
+		_x = (sw - _w) / 2;
+		_y = MAX<int>(10, (sh - _h) / 2);
+
+		new GUI::StaticTextWidget(this, margin, margin, _w - margin * 2, fh + 4,
+			Common::U32String(monkey ? "Near-Grog: Escape from Monkey Island" : "Near-Grog: Grim Fandango"), Graphics::kTextAlignCenter);
+		for (int i = 0; i < n; i++) {
+			const int c = i % cols, r = i / cols;
+			new GUI::ButtonWidget(this, margin + c * (bw + gap), margin + titleH + r * (bh + gap), bw, bh,
+				Common::U32String(labels[i]), Common::U32String(), cmds[i]);
+		}
 		// The house style's version readout: which build this is
 #ifdef IPHONE_IOS7
 		Common::String version = iOS7_getBuildVersion();
 #else
 		Common::String version = Common::String::format("v%s", gScummVMVersion);
 #endif
-		GUI::StaticTextWidget *label = new GUI::StaticTextWidget(this, 10, 42 + n * (bh + gap), w - 20, 14,
+		GUI::StaticTextWidget *label = new GUI::StaticTextWidget(this, margin, margin + titleH + rows * (bh + gap), _w - margin * 2, small + 4,
 			Common::U32String(version), Graphics::kTextAlignCenter, Common::U32String(), GUI::ThemeEngine::kFontStyleTooltip);
 		label->setEnabled(false);
 	}
@@ -287,8 +313,89 @@ void NearGrogTray::cheats() {
 }
 
 void NearGrogTray::beforeFlip() {
+	pressKeys();
 	if (_photoFrames > 0 && --_photoFrames == 0)
 		savePhoto();
+}
+
+void NearGrogTray::pressKeys() {
+	if (_keys.empty())
+		return;
+	Common::KeyState k((Common::KeyCode)_keys[0]);
+	if (!_keyDown) {
+		g_grim->handleControls(Common::EVENT_KEYDOWN, k);
+		_keyDown = true;
+	} else {
+		g_grim->handleControls(Common::EVENT_KEYUP, k);
+		_keyDown = false;
+		_keys.remove_at(0);
+	}
+}
+
+bool NearGrogTray::tap(int x, int y) {
+	if (!isMonkey() || !_keys.empty())
+		return false;
+
+	// The dialogue choices: centred lines of text, not speech, one under
+	// another. The highlighted one is drawn in a different colour.
+	struct Line {
+		int top, bottom, left, right;
+		Color color;
+	};
+	Common::Array<Line> lines;
+	const float sx = g_driver->getScreenWidth(), sy = g_driver->getScreenHeight();
+	for (TextObject *t : TextObject::getPool()) {
+		if (t->isSpeech() || t->getJustify() != TextObject::CENTER || t->getNumLines() < 1 || !t->getFont())
+			continue;
+		// Text is placed in 640x480 (coords 0) or 1920x1080 (coords 1 and 2)
+		const float scaleX = sx / (t->getCoords() == 0 ? 640.f : 1920.f);
+		const float scaleY = sy / (t->getCoords() == 0 ? 480.f : 1080.f);
+		Line l;
+		l.top = (int)(t->getLineY(0) * scaleY);
+		l.bottom = (int)((t->getLineY(t->getNumLines() - 1) + t->getFont()->getKernedHeight()) * scaleY);
+		l.left = (int)(t->getLineX(0) * scaleX);
+		l.right = l.left + (int)(t->getFont()->getKernedStringLength(t->getLines()[0]) * scaleX);
+		l.color = t->getFGColor();
+		lines.push_back(l);
+	}
+	if (lines.size() < 2)
+		return false;
+	Common::sort(lines.begin(), lines.end(), [](const Line &a, const Line &b) { return a.top < b.top; });
+
+	// The tapped line (a little slack between lines and at the sides)
+	int tapped = -1;
+	for (uint i = 0; i < lines.size(); i++) {
+		const int pad = (lines[i].bottom - lines[i].top) / 4;
+		if (y >= lines[i].top - pad && y < lines[i].bottom + pad && x >= lines[i].left - 40 && x < lines[i].right + 40)
+			tapped = i;
+	}
+	if (tapped < 0)
+		return false;
+
+	// The highlighted line: the one whose colour none of the others share
+	int highlighted = -1;
+	for (uint i = 0; i < lines.size(); i++) {
+		int same = 0;
+		for (uint j = 0; j < lines.size(); j++)
+			if (i != j && lines[j].color.getRed() == lines[i].color.getRed() &&
+				lines[j].color.getGreen() == lines[i].color.getGreen() && lines[j].color.getBlue() == lines[i].color.getBlue())
+				same++;
+		if (same == 0) {
+			if (highlighted >= 0)
+				return false; // not a menu we understand
+			highlighted = i;
+		}
+	}
+	if (highlighted < 0)
+		return false;
+
+	for (int i = highlighted; i < tapped; i++)
+		_keys.push_back(Common::KEYCODE_DOWN);
+	for (int i = highlighted; i > tapped; i--)
+		_keys.push_back(Common::KEYCODE_UP);
+	_keys.push_back(Common::KEYCODE_RETURN);
+	_keyDown = false;
+	return true;
 }
 
 // Saves the screen as a PNG next to the saved games, where the Files app

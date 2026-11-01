@@ -27,6 +27,7 @@
 
 #include "backends/platform/ios7/ios7_common.h"
 #include "common/str.h"
+#include "common/config-manager.h"
 
 Common::String iOS7_getDocumentsDir() {
 #if TARGET_OS_IOS
@@ -35,6 +36,23 @@ Common::String iOS7_getDocumentsDir() {
 	NSURL *url = [[[NSFileManager defaultManager] URLsForDirectory:NSCachesDirectory inDomains:NSUserDomainMask] firstObject];
 #endif
 	return Common::String([url fileSystemRepresentation]);
+}
+
+// Near-Grog: Grim Fandango and Escape from Monkey Island are played with the
+// touch gamepad, so it comes up by itself there (its own setting, which the
+// swipe that shows and hides the gamepad changes while one of them runs)
+static bool nearGrogGamepadGame() {
+	return ConfMan.getActiveDomain() != nullptr && ConfMan.get("engineid") == "grim";
+}
+
+const char *iOS7_gamepadSetting() {
+	return nearGrogGamepadGame() ? "neargrog_grim_gamepad" : "gamepad_controller";
+}
+
+bool iOS7_gamepadWanted() {
+	if (nearGrogGamepadGame())
+		return !ConfMan.hasKey("neargrog_grim_gamepad") || ConfMan.getBool("neargrog_grim_gamepad");
+	return ConfMan.getBool("gamepad_controller");
 }
 
 // Near-Grog: the build, as the house style's version readout shows it:

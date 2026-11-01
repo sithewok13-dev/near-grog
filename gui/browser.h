@@ -43,6 +43,15 @@ public:
 
 	const Common::FSNode	&getResult() { return _choice; }
 
+	/**
+	 * Near-Grog: let a .zip be chosen as well. It is unzipped into a folder of
+	 * the same name beside it, and the folder inside that holds a game
+	 * ScummVM recognises becomes the choice.
+	 */
+	void setUnzipGames(bool unzip) { _unzipGames = unzip; }
+	/** Unzips zip beside it (once) and finds the folder with the game. */
+	static bool unzipGame(const Common::FSNode &zip, Common::FSNode &result);
+
 protected:
 	ListWidget		*_fileList;
 	EditTextWidget	*_currentPath;
@@ -55,6 +64,10 @@ protected:
 	Common::FSNode		_choice;
 	Common::U32String	_title;
 	bool				_isDirBrowser;
+	bool				_unzipGames = false;
+
+	bool isZip(const Common::FSNode &node) const;
+	bool chooseZip(const Common::FSNode &zip);
 
 	void updateListing();
 };

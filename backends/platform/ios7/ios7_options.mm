@@ -531,7 +531,7 @@ void OSystem_iOS7::registerDefaultSettings(const Common::String &target) const {
 }
 
 void OSystem_iOS7::applyBackendSettings() {
-	virtualController(ConfMan.getBool("gamepad_controller"));
+	virtualController(iOS7_gamepadWanted());
 	// _currentTouchMode is applied by the graphic manager
 
 #if TARGET_OS_IOS
@@ -591,7 +591,10 @@ void OSystem_iOS7::applyTouchSettings(bool _3dMode, bool overlayShown) {
 	} else if (preferredTouchMode == "touchpad") {
 	 _currentTouchMode = kTouchModeTouchpad;
 	} else {
-	 _currentTouchMode = kTouchModeTouchpad;
+	 // Near-Grog: anything else (3D games default to "gamepad", which has no
+	 // touch mode of its own) uses the mode meant for this kind of screen,
+	 // so in 3D games a tap lands where the finger is
+	 _currentTouchMode = defaultMode == "direct" ? kTouchModeDirect : kTouchModeTouchpad;
 	}
 
 	updateTouchMode();
