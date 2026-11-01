@@ -40,8 +40,9 @@ public:
 	static void beforeFlip();
 	/**
 	 * A touch at (x, y) in screen pixels. In Escape from Monkey Island, a tap
-	 * on one of the dialogue choices picks it (the game itself only takes the
-	 * arrow keys and Enter). Returns true if the tap was used.
+	 * on a line of the nearby-objects list or the dialogue choices highlights
+	 * it, and a tap on the highlighted line picks it (the game itself only
+	 * takes Page Up / Page Down and Enter). Returns true if the tap was used.
 	 */
 	static bool tap(int x, int y);
 

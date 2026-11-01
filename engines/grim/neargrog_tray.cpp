@@ -389,11 +389,17 @@ bool NearGrogTray::tap(int x, int y) {
 	if (highlighted < 0)
 		return false;
 
-	for (int i = highlighted; i < tapped; i++)
-		_keys.push_back(Common::KEYCODE_DOWN);
-	for (int i = highlighted; i > tapped; i--)
-		_keys.push_back(Common::KEYCODE_UP);
-	_keys.push_back(Common::KEYCODE_RETURN);
+	// The game scrolls both its lists (nearby objects and dialogue choices)
+	// with Page Up / Page Down, and Enter picks a dialogue line. So a tap
+	// highlights the line; a tap on the highlighted line picks it.
+	if (tapped == highlighted) {
+		_keys.push_back(Common::KEYCODE_RETURN);
+	} else {
+		for (int i = highlighted; i < tapped; i++)
+			_keys.push_back(Common::KEYCODE_PAGEDOWN);
+		for (int i = highlighted; i > tapped; i--)
+			_keys.push_back(Common::KEYCODE_PAGEUP);
+	}
 	_keyDown = false;
 	return true;
 }
