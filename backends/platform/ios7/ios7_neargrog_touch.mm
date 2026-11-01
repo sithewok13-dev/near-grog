@@ -127,7 +127,8 @@ static void sendEvent(const InternalEvent &e) {
 	NGTouch _touches[10];
 	bool _stickOn;
 	CGPoint _stickOrigin;
-	int _stickX, _stickY;      // last sent, JOYAXIS units
+	int _stickX, _stickY;      // last set, JOYAXIS units
+	bool _padDown[4];          // D-pad up, down, left, right held by the stick
 	bool _runFromStick;
 	CAShapeLayer *_stickBase, *_stickKnob, *_runMarker;
 	CATextLayer *_runText;
@@ -197,7 +198,14 @@ static void sendEvent(const InternalEvent &e) {
 	return self;
 }
 
+// The iOS keyboard is up: only MENU shows, and a tap on it closes the keyboard
+- (bool)keyboardUp {
+	return [[iOS7AppDelegate iPhoneView] isKeyboardShown];
+}
+
 - (bool)shows:(int)i {
+	if ([self keyboardUp])
+		return i == kBtnMenu;
 	// No RUN button: the stick's run marker does that (owner, 2026-11-01)
 	if (i == kBtnRun)
 		return false;
@@ -313,7 +321,7 @@ static void sendEvent(const InternalEvent &e) {
 - (UIView *)hitTest:(CGPoint)p withEvent:(UIEvent *)event {
 	if (self.hidden)
 		return nil;
-	if ([self buttonAt:p] >= 0 || p.x < self.bounds.size.width * NG_STICK_ZONE)
+	if ([self buttonAt:p] >= 0 || (p.x < self.bounds.size.width * NG_STICK_ZONE && ![self keyboardUp]))
 		return self;
 	return nil;
 }
@@ -332,13 +340,21 @@ static void sendEvent(const InternalEvent &e) {
 }
 
 - (void)setStickX:(int)x y:(int)y run:(bool)run {
-	if (x != _stickX) {
-		sendEvent(InternalEvent(kInputJoystickAxisMotion, Common::JOYSTICK_AXIS_LEFT_STICK_X, x));
-		_stickX = x;
-	}
-	if (y != _stickY) {
-		sendEvent(InternalEvent(kInputJoystickAxisMotion, Common::JOYSTICK_AXIS_LEFT_STICK_Y, y));
-		_stickY = y;
+	// The stick presses the D-pad, which Grim's keymap turns into the arrow
+	// keys: both games always walk with those. (Monkey Island ignores the
+	// analog stick outside its gamepad modes, so Guybrush stood still.) Past
+	// half way on an axis is that direction, as Grim reads a stick.
+	_stickX = x;
+	_stickY = y;
+	const bool want[4] = { y < -Common::JOYAXIS_MAX / 2, y > Common::JOYAXIS_MAX / 2,
+		x < -Common::JOYAXIS_MAX / 2, x > Common::JOYAXIS_MAX / 2 };
+	const int pad[4] = { Common::JOYSTICK_BUTTON_DPAD_UP, Common::JOYSTICK_BUTTON_DPAD_DOWN,
+		Common::JOYSTICK_BUTTON_DPAD_LEFT, Common::JOYSTICK_BUTTON_DPAD_RIGHT };
+	for (int i = 0; i < 4; i++) {
+		if (want[i] != _padDown[i]) {
+			sendEvent(InternalEvent(want[i] ? kInputJoystickButtonDown : kInputJoystickButtonUp, pad[i], 0));
+			_padDown[i] = want[i];
+		}
 	}
 	if (run != _runFromStick) {
 		// RUN held by the button as well keeps it held
@@ -475,8 +491,12 @@ static void sendEvent(const InternalEvent &e) {
 						sendEvent(InternalEvent(kInputJoystickAxisMotion, b.joy, Common::JOYAXIS_MAX));
 						sendEvent(InternalEvent(kInputJoystickAxisMotion, b.joy, 0));
 					} else if (b.kind == kNGMenu && !b.fired && !b.cancelled) {
-						sendEvent(InternalEvent(kInputJoystickButtonDown, b.joy, 0));
-						sendEvent(InternalEvent(kInputJoystickButtonUp, b.joy, 0));
+						if ([self keyboardUp]) {
+							[[iOS7AppDelegate iPhoneView] hideKeyboard];
+						} else {
+							sendEvent(InternalEvent(kInputJoystickButtonDown, b.joy, 0));
+							sendEvent(InternalEvent(kInputJoystickButtonUp, b.joy, 0));
+						}
 					}
 				}
 				b.fired = b.cancelled = false;

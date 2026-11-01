@@ -482,7 +482,17 @@ bool iOS7_fetchEvent(InternalEvent *event) {
 // Near-Grog: the view's gestures (taps, swipes) leave touches on the Grim
 // games' overlay alone
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch {
-	return touch.view == self;
+	if (touch.view != self)
+		return NO;
+	// While the overlay is up only plain one-finger taps reach the game: the
+	// other gestures (a pinch or long press opens the keyboard, swipes
+	// change settings) were set off by accident during play
+	if (_nearGrogOverlayShown) {
+		if (![gestureRecognizer isKindOfClass:[UITapGestureRecognizer class]])
+			return NO;
+		return ((UITapGestureRecognizer *)gestureRecognizer).numberOfTouchesRequired == 1;
+	}
+	return YES;
 }
 
 - (BOOL)isiOSAppOnMac {
