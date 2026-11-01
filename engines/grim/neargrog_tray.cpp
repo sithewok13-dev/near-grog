@@ -25,19 +25,20 @@
 #include "graphics/surface.h"
 #include "gui/chooser.h"
 #include "gui/dialog.h"
-#include "gui/message.h"
 #include "gui/widget.h"
 #include "image/png.h"
 #include "engines/grim/bitmap.h"
 #include "engines/grim/gfx_base.h"
 #include "engines/grim/grim.h"
 #include "engines/grim/neargrog_tray.h"
+#include "engines/grim/set.h"
 
 namespace Grim {
 
 int NearGrogTray::_photoFrames = 0;
 bool NearGrogTray::_objectNames = false;
 bool NearGrogTray::_roomName = false;
+bool NearGrogTray::_noWalls = false;
 
 namespace {
 
@@ -87,12 +88,37 @@ const Chapter kMonkeyChapters[] = {
 	{ "395", "The endgame" }
 };
 
+// Grim Fandango's developer jump points (jump_script in _system.lua). The
+// developers left none for Year 3.
+const Chapter kGrimChapters[] = {
+	{ "100", "Year 1: Bruno already reaped" },
+	{ "200", "Year 1: Meche already reaped" },
+	{ "gb", "Year 1: the packing room" },
+	{ "tb", "Year 1: the tube room" },
+	{ "tc", "Year 1: the tube room, cards in hand" },
+	{ "mm", "Year 1: Manny and Meche" },
+	{ "sd", "Year 1: Glottis' shop and Salvador" },
+	{ "cr", "Year 1: the ledge, with the coral" },
+	{ "pb", "Year 1: the roof and the pigeons" },
+	{ "rip", "Petrified Forest: Glottis' heart" },
+	{ "forest", "Petrified Forest: the spider web" },
+	{ "gh", "Petrified Forest: Glottis gets his heart back" },
+	{ "tp", "Petrified Forest: the tree pump" },
+	{ "tf", "Year 2: Rubacava, the tattoo parlour" },
+	{ "dm", "Year 2: the morgue" },
+	{ "shanghai2", "Year 2: Meche shanghaied, the Limbo dock" },
+	{ "hrkitchen", "Year 2: the high rollers' kitchen" },
+	{ "winecellar", "Year 2: the wine cellar" },
+	{ "mf", "Year 4: the flower meadow" },
+	{ "ts", "Year 4: the shootout" }
+};
+
 class TrayDialog : public GUI::Dialog {
 public:
 	TrayDialog(bool monkey) : GUI::Dialog(0, 0, 0, 0) {
 		const int w = MIN<int>(g_system->getOverlayWidth() - 40, 320);
 		const int bh = 28, gap = 8;
-		const char *const labels[] = { "Resume", "Chapter select", "Free camera", "Take a photo", "Cheats", "ScummVM menu" };
+		const char *const labels[] = { "Resume", "Chapter select", monkey ? "Free camera" : "Camera angles", "Take a photo", "Cheats", "ScummVM menu" };
 		const uint32 cmds[] = { kCmdResume, kCmdChapters, kCmdCamera, kCmdPhoto, kCmdCheats, kCmdScummVM };
 		const int n = ARRAYSIZE(labels);
 		const int h = 50 + n * (bh + gap);
@@ -114,11 +140,6 @@ public:
 
 bool isMonkey() {
 	return g_grim->getGameType() == GType_MONKEY4;
-}
-
-void message(const char *text) {
-	GUI::MessageDialog dialog{Common::U32String(text)};
-	dialog.runModal();
 }
 
 } // End of anonymous namespace
@@ -153,13 +174,12 @@ void NearGrogTray::open() {
 }
 
 void NearGrogTray::chapters() {
-	if (!isMonkey()) {
-		message("Grim Fandango's chapter list is coming: it needs a look at the game's scripts first.");
-		return;
-	}
+	const bool monkey = isMonkey();
+	const Chapter *table = monkey ? kMonkeyChapters : kGrimChapters;
+	const int count = monkey ? ARRAYSIZE(kMonkeyChapters) : ARRAYSIZE(kGrimChapters);
 	Common::U32StringArray names;
-	for (const Chapter &c : kMonkeyChapters)
-		names.push_back(Common::U32String(c.name));
+	for (int i = 0; i < count; i++)
+		names.push_back(Common::U32String(table[i].name));
 	int picked;
 	{
 		PauseToken pause = g_grim->pauseEngine();
@@ -167,32 +187,57 @@ void NearGrogTray::chapters() {
 		chooser.setList(names);
 		picked = chooser.runModal();
 	}
-	if (picked < 0 || picked >= (int)ARRAYSIZE(kMonkeyChapters))
+	if (picked < 0 || picked >= count)
 		return;
-	g_grim->debugLua("dofile(\"_jumpscripts.lua\")\n");
-	g_grim->debugLua(Common::String::format("start_script(jump_script,\"%s\")", kMonkeyChapters[picked].jump));
+	// Escape from Monkey Island keeps its jump script in a file of its own
+	if (monkey)
+		g_grim->debugLua("dofile(\"_jumpscripts.lua\")\n");
+	g_grim->debugLua(Common::String::format("start_script(jump_script,\"%s\")", table[picked].jump));
 }
 
 void NearGrogTray::freeCamera() {
-	if (!isMonkey()) {
-		message("Grim Fandango's free camera is coming: it needs a look at the game's scripts first.");
+	if (isMonkey()) {
+		// The developers' FlyCam (_flycam.lua): arrows turn and move, A/Z
+		// move in and out, page up/down orbit, Esc leaves
+		g_grim->debugLua("dofile(\"_flycam.lua\")\n");
+		g_grim->debugLua("__ng_fn__ = function()\nflycam:init()\nend\nstart_script(__ng_fn__)");
+		g_system->displayMessageOnOSD(Common::U32String("Free camera: stick moves it, B leaves"));
 		return;
 	}
-	// The developers' FlyCam (_flycam.lua): arrows turn and move, A/Z move
-	// in and out, page up/down orbit, Esc leaves
-	g_grim->debugLua("dofile(\"_flycam.lua\")\n");
-	g_grim->debugLua("__ng_fn__ = function()\nflycam:init()\nend\nstart_script(__ng_fn__)");
-	g_system->displayMessageOnOSD(Common::U32String("Free camera: stick moves it, B leaves"));
+
+	// Grim Fandango's rooms are painted from fixed cameras: pick any of the
+	// room's angles. The game's cameraman, who follows Manny, waits meanwhile.
+	Set *set = g_grim->getCurrSet();
+	if (!set || set->getNumSetups() < 1)
+		return;
+	Common::U32StringArray names;
+	names.push_back(Common::U32String("Follow Manny (normal)"));
+	for (int i = 0; i < set->getNumSetups(); i++)
+		names.push_back(Common::U32String(Common::String::format("Angle %d: %s%s", i + 1,
+			set->getSetup(i)->_name.c_str(), i == set->getSetup() ? " (now)" : "")));
+	int picked;
+	{
+		PauseToken pause = g_grim->pauseEngine();
+		GUI::ChooserDialog chooser(Common::U32String("Camera angle"));
+		chooser.setList(names);
+		picked = chooser.runModal();
+	}
+	if (picked < 0)
+		return;
+	if (picked == 0) {
+		g_grim->debugLua("cameraman_disabled = FALSE");
+		g_system->displayMessageOnOSD(Common::U32String("The camera follows Manny again when he moves"));
+		return;
+	}
+	g_grim->debugLua("cameraman_disabled = TRUE");
+	g_grim->makeCurrentSetup(picked - 1);
 }
 
 void NearGrogTray::cheats() {
-	if (!isMonkey()) {
-		message("Grim Fandango's cheats are coming: they need a look at the game's scripts first.");
-		return;
-	}
 	Common::U32StringArray names;
 	names.push_back(Common::U32String(_objectNames ? "Show object names: on" : "Show object names: off"));
 	names.push_back(Common::U32String(_roomName ? "Show room name: on" : "Show room name: off"));
+	names.push_back(Common::U32String(_noWalls ? "Walk through walls: on" : "Walk through walls: off"));
 	int picked;
 	{
 		PauseToken pause = g_grim->pauseEngine();
@@ -200,19 +245,29 @@ void NearGrogTray::cheats() {
 		chooser.setList(names);
 		picked = chooser.runModal();
 	}
-	// The developers' own helpers in _debug.lua
-	g_grim->debugLua("dofile(\"_debug.lua\")\n");
+	const char *code = nullptr;
+	// The developers' own helpers (_debug.lua in Monkey Island; built into
+	// Grim Fandango's _sets.lua and _controls.lua)
+	if (isMonkey())
+		g_grim->debugLua("dofile(\"_debug.lua\")\n");
 	if (picked == 0) {
 		_objectNames = !_objectNames;
-		g_grim->debugLua(_objectNames ?
-			"__ng_fn__ = function()\nsystem.object_names_showing = TRUE\nsystem.currentSet:update_object_names()\nend\nstart_script(__ng_fn__)" :
-			"__ng_fn__ = function()\nsystem.object_names_showing = FALSE\nsystem.currentSet:kill_object_names()\nend\nstart_script(__ng_fn__)");
+		code = _objectNames ?
+			"system.object_names_showing = TRUE\nsystem.currentSet:update_object_names()\n"
+			"if system.currentSet.make_objects_visible then system.currentSet:make_objects_visible() end" :
+			"system.object_names_showing = FALSE\nsystem.currentSet:kill_object_names()\n"
+			"if system.currentSet.make_objects_visible then system.currentSet:make_objects_visible() end";
 	} else if (picked == 1) {
 		_roomName = !_roomName;
-		g_grim->debugLua(_roomName ?
-			"__ng_fn__ = function()\nsystem.currentSet:display_room_name()\nend\nstart_script(__ng_fn__)" :
-			"__ng_fn__ = function()\nsystem.currentSet:kill_room_name()\nend\nstart_script(__ng_fn__)");
+		code = _roomName ? "system.currentSet:display_room_name()" : "system.currentSet:kill_room_name()";
+	} else if (picked == 2) {
+		_noWalls = !_noWalls;
+		code = _noWalls ?
+			"if system.currentActor.ignore_boxes then system.currentActor:ignore_boxes() end" :
+			"if system.currentActor.follow_boxes then system.currentActor:follow_boxes() end";
 	}
+	if (code)
+		g_grim->debugLua(Common::String::format("__ng_fn__ = function()\n%s\nend\nstart_script(__ng_fn__)", code));
 }
 
 void NearGrogTray::beforeFlip() {

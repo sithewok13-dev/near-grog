@@ -41,6 +41,7 @@ private:
 	static int _photoFrames;
 	static bool _objectNames;
 	static bool _roomName;
+	static bool _noWalls;
 	static void chapters();
 	static void cheats();
 	static void freeCamera();
