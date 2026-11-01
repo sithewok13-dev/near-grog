@@ -637,26 +637,31 @@
 	CGRect keyboardFrame = [[userInfo objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue];
 	keyboardFrame = [self.superview convertRect:keyboardFrame fromView:nil];
 
-	// Base the new frame size on the current parent frame size
+	// Near-Grog: size the frame from the window every time instead of adding
+	// and taking away the keyboard's height. The keyboard can report another
+	// height when it hides, or hide twice, and then the game was left taller
+	// than the screen (drawn too big and cut off).
 	CGRect newFrame = self.superview.frame;
+	CGFloat fullHeight = self.window ? self.window.bounds.size.height : [[UIScreen mainScreen] bounds].size.height;
+	CGFloat covered = 0;
+	if (didShow) {
 #ifdef __IPHONE_14_0
-	if (@available(iOS 14.0, tvOS 14.0, *)) {
-		if (GCKeyboard.coalescedKeyboard != nil) {
-			if (didShow) {
-				// The inputAccessoryView is hidden by setting it to nil. Then when
-				// receiving the UIKeyboardDidHideNotification the height will be 0.
-				// Remember the height of the inputAccessoryView when it's presented
-				// so the main frame can be resized back to the proper size.
+		if (@available(iOS 14.0, tvOS 14.0, *)) {
+			if (GCKeyboard.coalescedKeyboard != nil) {
+				// The inputAccessoryView is hidden by setting it to nil. Remember
+				// its height while it's presented.
 				_inputAccessoryHeight = inputView.inputAccessoryView.frame.size.height;
+				covered = _inputAccessoryHeight;
+			} else {
+				covered = keyboardFrame.size.height;
 			}
-			newFrame.size.height += (_inputAccessoryHeight) * (didShow ? -1 : 1);
-		} else {
-			newFrame.size.height += (keyboardFrame.size.height) * (didShow ? -1 : 1);
-		}
-	} else {
-		newFrame.size.height += (keyboardFrame.size.height) * (didShow ? -1 : 1);
-	}
+		} else
 #endif
+		{
+			covered = keyboardFrame.size.height;
+		}
+	}
+	newFrame.size.height = MAX(fullHeight - covered, (CGFloat)1);
 	// Resize with a fancy animation
 	NSNumber *rate = notification.userInfo[UIKeyboardAnimationDurationUserInfoKey];
 	[UIView animateWithDuration:rate.floatValue animations:^{
@@ -680,8 +685,7 @@
 
 - (void)keyboardDidHide:(NSNotification*)notification
 {
-	// NotificationCenter will only call this once
-	// when keyboard did hide.
+	// Restoring the full height is safe even if this comes twice
 	[self resizeParentFrame:notification keyboardDidShow:NO];
 	_keyboardVisible = NO;
 }
