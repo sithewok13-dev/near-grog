@@ -76,6 +76,8 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$PLIST"
           /usr/libexec/PlistBuddy -c "Delete :CFBundleDisplayName" "$PLIST" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_NAME" "$PLIST"
+          # The build number, for the tray's version readout (house style)
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GITHUB_RUN_NUMBER" "$PLIST"
           mkdir -p ipa/Payload
           cp -R "$APP" ipa/Payload/
           (cd ipa && zip -qry "../$APP_NAME-ios.ipa" Payload)

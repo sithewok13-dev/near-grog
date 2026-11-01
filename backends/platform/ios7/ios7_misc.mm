@@ -37,6 +37,18 @@ Common::String iOS7_getDocumentsDir() {
 	return Common::String([url fileSystemRepresentation]);
 }
 
+// Near-Grog: the build, as the house style's version readout shows it:
+// "v<CFBundleShortVersionString>", plus " (<CFBundleVersion>)" when different
+Common::String iOS7_getBuildVersion() {
+	NSDictionary *info = [[NSBundle mainBundle] infoDictionary];
+	NSString *shortVersion = info[@"CFBundleShortVersionString"];
+	NSString *build = info[@"CFBundleVersion"];
+	Common::String v = Common::String::format("v%s", shortVersion ? [shortVersion UTF8String] : "?");
+	if (build && ![build isEqualToString:shortVersion])
+		v += Common::String::format(" (%s)", [build UTF8String]);
+	return v;
+}
+
 Common::String iOS7_getAppBundleDir() {
 	NSString *bundlePath = [[NSBundle mainBundle] resourcePath];
 	if (bundlePath == nil)

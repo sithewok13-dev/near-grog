@@ -33,6 +33,13 @@
 #include "engines/grim/neargrog_tray.h"
 #include "engines/grim/set.h"
 
+#ifdef IPHONE_IOS7
+// The app's build, from its Info.plist (backends/platform/ios7/ios7_misc.mm)
+Common::String iOS7_getBuildVersion();
+#else
+#include "base/version.h"
+#endif
+
 namespace Grim {
 
 int NearGrogTray::_photoFrames = 0;
@@ -121,7 +128,7 @@ public:
 		const char *const labels[] = { "Resume", "Chapter select", monkey ? "Free camera" : "Camera angles", "Take a photo", "Cheats", "ScummVM menu" };
 		const uint32 cmds[] = { kCmdResume, kCmdChapters, kCmdCamera, kCmdPhoto, kCmdCheats, kCmdScummVM };
 		const int n = ARRAYSIZE(labels);
-		const int h = 50 + n * (bh + gap);
+		const int h = 50 + n * (bh + gap) + 14;
 		_x = (g_system->getOverlayWidth() - w) / 2;
 		_y = MAX<int>(10, (g_system->getOverlayHeight() - h) / 2);
 		_w = w;
@@ -130,6 +137,15 @@ public:
 			Common::U32String(monkey ? "Near-Grog: Escape from Monkey Island" : "Near-Grog: Grim Fandango"), Graphics::kTextAlignCenter);
 		for (int i = 0; i < n; i++)
 			new GUI::ButtonWidget(this, 20, 42 + i * (bh + gap), w - 40, bh, Common::U32String(labels[i]), Common::U32String(), cmds[i]);
+		// The house style's version readout: which build this is
+#ifdef IPHONE_IOS7
+		Common::String version = iOS7_getBuildVersion();
+#else
+		Common::String version = Common::String::format("v%s", gScummVMVersion);
+#endif
+		GUI::StaticTextWidget *label = new GUI::StaticTextWidget(this, 10, 42 + n * (bh + gap), w - 20, 14,
+			Common::U32String(version), Graphics::kTextAlignCenter, Common::U32String(), GUI::ThemeEngine::kFontStyleTooltip);
+		label->setEnabled(false);
 	}
 
 	void handleCommand(GUI::CommandSender *sender, uint32 cmd, uint32 data) override {
