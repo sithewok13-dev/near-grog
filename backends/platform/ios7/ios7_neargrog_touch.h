@@ -28,8 +28,8 @@
  * ported from the Serious Sam overlay's layout and timings:
  *
  *  - a move stick that appears under the left thumb (left 42% of the
- *    screen, radius 60 pt, 30% dead zone) with Jedi Knight's run marker
- *    100 pt above it: push onto it to run
+ *    screen, radius 60 pt, 30% dead zone): pushed right out (90%), any
+ *    way, runs; Jedi Knight's run marker 100 pt above it runs straight on
  *  - bottom right: USE in FIRE's place (42 pt), LOOK / GET / BAG on the arc
  *    around it (no RUN button: the stick's run marker does that)
  *  - top left, Monkey Island only: NEXT and PREV object (a tap is a step)

@@ -43,6 +43,7 @@
 #define NG_STICK_DEADZONE 0.30    // JK's
 #define NG_RUN_MARKER_UP 100.0    // JK: the run marker, this far above the stick
 #define NG_RUN_MARKER_RADIUS 18.0
+#define NG_STICK_RUN 0.9         // pushed this far out (of the radius), any way: running
 #define NG_IDLE_ALPHA 0.65
 #define NG_TOUCH_SLOP 6.0
 #define NG_CLUSTER_GAP 30.0
@@ -362,7 +363,9 @@ static void sendEvent(const InternalEvent &e) {
 		x = (int)(CLIP(dx / full, -1.0, 1.0) * Common::JOYAXIS_MAX);
 		y = (int)(CLIP(dy / full, -1.0, 1.0) * Common::JOYAXIS_MAX);
 	}
-	[self setStickX:x y:y run:onMarker];
+	// Running: on the marker, or the stick pushed right out in any direction
+	const bool run = onMarker || mag >= NG_STICK_RUN;
+	[self setStickX:x y:y run:run];
 
 	// The knob follows the thumb, up to the edge
 	if (mag > 1.0) {
@@ -373,6 +376,8 @@ static void sendEvent(const InternalEvent &e) {
 	[CATransaction setDisableActions:YES];
 	_stickKnob.path = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(_stickOrigin.x + dx - 24, _stickOrigin.y + dy - 24, 48, 48)].CGPath;
 	_runMarker.fillColor = [UIColor colorWithWhite:(onMarker ? 1 : 0) alpha:0.35].CGColor;
+	// The knob lights up while running
+	_stickKnob.fillColor = [UIColor colorWithWhite:1 alpha:(run ? 0.9 : 0.5)].CGColor;
 	[CATransaction commit];
 }
 
