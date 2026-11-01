@@ -51,6 +51,8 @@ public:
 	DosGamesMetaEngineDetection();
 	~DosGamesMetaEngineDetection() override {}
 
+	ADDetectedGame fallbackDetect(const FileMap &allFiles, const Common::FSList &fslist, ADDetectedGameExtraInfo **extra) const override;
+
 	const char *getName() const override {
 		return "dosgames";
 	}

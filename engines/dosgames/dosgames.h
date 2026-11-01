@@ -28,6 +28,7 @@
 #include "graphics/surface.h"
 #include "dosgames/detection.h"
 #include "dosgames/dospc.h"
+#include "dosgames/gamefiles.h"
 
 namespace OPL {
 class OPL;
@@ -58,6 +59,7 @@ public:
 	void oplWrite(int reg, int value) override;
 
 private:
+	GameFiles *_files;
 	const DosGameDescription *_desc;
 	DosPC *_pc;
 	Graphics::Surface _screen;

@@ -574,8 +574,12 @@ unzFile unzOpen(Common::SeekableReadStream *stream, bool flattenTree) {
 
 		const char *name = szCurrentFileName;
 		if (flattenTree) {
-			if (isDirectory)
+			// Near-Grog: move on before skipping a folder, or a zip with
+			// folders in it never finishes opening
+			if (isDirectory) {
+				err = unzGoToNextFile((unzFile)us);
 				continue;
+			}
 
 			for (const char *p = szCurrentFileName; *p; p++)
 				if (*p == '\\' || *p == '/')

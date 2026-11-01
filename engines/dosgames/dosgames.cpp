@@ -35,7 +35,7 @@
 namespace DosGames {
 
 DosGamesEngine::DosGamesEngine(OSystem *syst, const DosGameDescription *desc) :
-		Engine(syst), _desc(desc), _pc(nullptr), _opl(nullptr) {
+		Engine(syst), _desc(desc), _pc(nullptr), _opl(nullptr), _files(nullptr) {
 }
 
 DosGamesEngine::~DosGamesEngine() {
@@ -44,6 +44,7 @@ DosGamesEngine::~DosGamesEngine() {
 		delete _opl;
 	}
 	delete _pc;
+	delete _files;
 	_screen.free();
 }
 
@@ -66,19 +67,7 @@ bool DosGamesEngine::readFile(const Common::String &name, Common::Array<byte> &d
 		saved->read(data.data(), data.size());
 		return true;
 	}
-	Common::FSList files;
-	Common::FSNode(ConfMan.getPath("path")).getChildren(files, Common::FSNode::kListFilesOnly);
-	for (const Common::FSNode &node : files) {
-		if (!node.getFileName().equalsIgnoreCase(name))
-			continue;
-		Common::ScopedPtr<Common::SeekableReadStream> s(node.createReadStream());
-		if (!s)
-			return false;
-		data.resize(s->size());
-		s->read(data.data(), data.size());
-		return true;
-	}
-	return false;
+	return _files->read(name, data);
 }
 
 void DosGamesEngine::writeFile(const Common::String &name, const Common::Array<byte> &data) {
@@ -92,14 +81,7 @@ void DosGamesEngine::writeFile(const Common::String &name, const Common::Array<b
 }
 
 Common::StringArray DosGamesEngine::listFiles() {
-	Common::StringArray names;
-	Common::FSList files;
-	Common::FSNode(ConfMan.getPath("path")).getChildren(files, Common::FSNode::kListFilesOnly);
-	for (const Common::FSNode &node : files) {
-		Common::String n = node.getFileName();
-		n.toUppercase();
-		names.push_back(n);
-	}
+	Common::StringArray names = _files->names();
 	Common::String prefix = savedFileName("");
 	for (const Common::String &s : _saveFileMan->listSavefiles(prefix + "*")) {
 		Common::String n = s.substr(prefix.size());
@@ -233,6 +215,14 @@ Common::Error DosGamesEngine::loadGameStream(Common::SeekableReadStream *stream)
 }
 
 Common::Error DosGamesEngine::run() {
+	// The game folder, and any zips in it
+	_files = new GameFiles(Common::FSNode(ConfMan.getPath("path")));
+	if (!_files->has(_desc->desc.filesDescriptions[0].fileName) && !_files->tooBigZip().empty()) {
+		GUIErrorMessage(Common::U32String::format("%s is over 50 MB, which is slow to play from. Please unzip it into the game's folder.",
+			_files->tooBigZip().c_str()));
+		return Common::kNoError;
+	}
+
 	initGraphics(DosPC::kScreenW, DosPC::kScreenH);
 	_screen.create(DosPC::kScreenW, DosPC::kScreenH, Graphics::PixelFormat::createFormatCLUT8());
 

@@ -20,7 +20,9 @@
  */
 
 #include "base/plugins.h"
+#include "common/md5.h"
 #include "dosgames/detection.h"
+#include "dosgames/gamefiles.h"
 
 namespace DosGames {
 
@@ -63,6 +65,28 @@ static const DosGameDescription gameDescriptions[] = {
 } // End of namespace DosGames
 
 DosGamesMetaEngineDetection::DosGamesMetaEngineDetection() : AdvancedMetaEngineDetection(DosGames::gameDescriptions, DosGames::dosGames) {
+}
+
+// The games inside .zip files: the same files, checked the same way
+ADDetectedGame DosGamesMetaEngineDetection::fallbackDetect(const FileMap &allFiles, const Common::FSList &fslist, ADDetectedGameExtraInfo **extra) const {
+	bool anyZip = false;
+	for (const Common::FSNode &node : fslist)
+		anyZip |= !node.isDirectory() && node.getFileName().hasSuffixIgnoreCase(".zip");
+	if (!anyZip)
+		return ADDetectedGame();
+
+	DosGames::GameFiles files(fslist, true);
+	for (const DosGames::DosGameDescription *g = DosGames::gameDescriptions; g->desc.gameId; g++) {
+		bool match = true;
+		for (const ADGameFileDescription *f = g->desc.filesDescriptions; match && f->fileName; f++) {
+			Common::ScopedPtr<Common::SeekableReadStream> s(files.open(f->fileName));
+			match = s && (f->fileSize == AD_NO_SIZE || s->size() == f->fileSize) &&
+				(!f->md5 || Common::computeStreamMD5AsString(*s, 5000) == f->md5);
+		}
+		if (match)
+			return ADDetectedGame(&g->desc);
+	}
+	return ADDetectedGame();
 }
 
 REGISTER_PLUGIN_STATIC(DOSGAMES_DETECTION, PLUGIN_TYPE_ENGINE_DETECTION, DosGamesMetaEngineDetection);
