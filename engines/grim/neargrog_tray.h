@@ -45,6 +45,10 @@ public:
 	 * takes Page Up / Page Down and Enter). Returns true if the tap was used.
 	 */
 	static bool tap(int x, int y);
+	/** A tap anywhere else: skips the line being spoken (or the movie). */
+	static bool skip(bool movie);
+	/** Tells the iOS touch overlay whether the game is being played. */
+	static void reportTouchMode(bool playing);
 
 private:
 	static int _photoFrames;

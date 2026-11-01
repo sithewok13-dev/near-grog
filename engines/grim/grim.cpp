@@ -701,6 +701,20 @@ void GrimEngine::playAspyrLogo() {
 	g_movie = defaultPlayer;
 }
 
+// Near-Grog: saving by slot (QUICK SAVE, and ScummVM's menu), through the
+// game's own save, whose scripts name it
+bool GrimEngine::canSaveGameStateCurrently(Common::U32String *msg) {
+	return _mode == NormalMode && !(getGameFlags() & ADGF_DEMO);
+}
+
+Common::Error GrimEngine::saveGameState(int slot, const Common::String &desc, bool isAutosave) {
+	if (getGameType() == GType_MONKEY4)
+		saveGame(Common::String::format(getGamePlatform() == Common::kPlatformPS2 ? "efmi%03d.ps2" : "efmi%03d.gsv", slot));
+	else
+		saveGame(Common::String::format("grim%02d.gsv", slot));
+	return Common::kNoError;
+}
+
 Common::Error GrimEngine::loadGameState(int slot) {
 	assert(slot >= 0);
 	if (getGameType() == GType_MONKEY4) {
@@ -1065,6 +1079,9 @@ void GrimEngine::mainLoop() {
 			g_imuse->refreshScripts();
 		}
 
+		// Near-Grog: the touch overlay shows while the game is being played
+		NearGrogTray::reportTouchMode(_mode == NormalMode);
+
 		// Process events
 		Common::Event event;
 		while (g_system->getEventManager()->pollEvent(event)) {
@@ -1129,8 +1146,9 @@ void GrimEngine::mainLoop() {
 			if (type == Common::EVENT_LBUTTONDOWN) {
 				_cursorX = event.mouse.x;
 				_cursorY = event.mouse.y;
-				// Near-Grog: a tap on one of Monkey Island's dialogue choices
-				if (NearGrogTray::tap(event.mouse.x, event.mouse.y))
+				// Near-Grog: a tap picks from Monkey Island's lists, or skips
+				// the line being spoken or the movie playing
+				if (NearGrogTray::tap(event.mouse.x, event.mouse.y) || NearGrogTray::skip(_mode == SmushMode))
 					continue;
 				Common::KeyState k;
 				k.keycode = (Common::KeyCode)KEYCODE_MOUSE_B1;
@@ -1683,7 +1701,8 @@ void GrimEngine::openMainMenuDialog() {
 bool GrimEngine::hasFeature(EngineFeature f) const {
 	return
 		(f == kSupportsReturnToLauncher) ||
-		(f == kSupportsLoadingDuringRuntime);
+		(f == kSupportsLoadingDuringRuntime) ||
+		(f == kSupportsSavingDuringRuntime); // Near-Grog
 }
 
 void GrimEngine::pauseEngineIntern(bool pause) {

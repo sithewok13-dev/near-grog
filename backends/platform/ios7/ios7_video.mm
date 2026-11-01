@@ -30,6 +30,7 @@
 #include "backends/platform/ios7/ios7_gamepad_controller.h"
 
 #include "backends/platform/ios7/ios7_app_delegate.h"
+#include "backends/platform/ios7/ios7_neargrog_touch.h"
 
 #ifdef __IPHONE_14_0
 #include <GameController/GameController.h>
@@ -83,6 +84,7 @@ bool iOS7_fetchEvent(InternalEvent *event) {
 }
 
 @implementation iPhoneView {
+	BOOL _nearGrogOverlayShown;
 #if TARGET_OS_IOS
 	UIButton *_menuButton;
 	UIButton *_toggleTouchModeButton;
@@ -336,6 +338,9 @@ bool iOS7_fetchEvent(InternalEvent *event) {
 	[self addGestureRecognizer:twoFingerLongPressGesture];
 	[self addGestureRecognizer:pencilThreeTapGesture];
 	[self addGestureRecognizer:pencilTwoTapLongTouchGesture];
+	// Near-Grog: see gestureRecognizer:shouldReceiveTouch:
+	for (UIGestureRecognizer *g in self.gestureRecognizers)
+		g.delegate = self;
 
 	[pinchKeyboard release];
 	[swipeRight release];
@@ -459,10 +464,25 @@ bool iOS7_fetchEvent(InternalEvent *event) {
 
     [_toggleTouchModeButton setImage: btnImage forState:UIControlStateNormal];
 
+	// Near-Grog: the Grim games' overlay has its own MENU in that corner
+	if (_nearGrogOverlayShown)
+		isEnabled = false;
+
 	[_toggleTouchModeButton setEnabled:isEnabled];
 	[_toggleTouchModeButton setHidden:!isEnabled];
 	[_menuButton setEnabled:isEnabled && [self isInGame]];
 	[_menuButton setHidden:!isEnabled || ![self isInGame]];
+}
+
+- (void)setNearGrogOverlayShown:(BOOL)shown {
+	_nearGrogOverlayShown = shown;
+	[self updateTouchMode];
+}
+
+// Near-Grog: the view's gestures (taps, swipes) leave touches on the Grim
+// games' overlay alone
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch {
+	return touch.view == self;
 }
 
 - (BOOL)isiOSAppOnMac {

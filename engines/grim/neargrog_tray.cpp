@@ -35,10 +35,12 @@
 #include "engines/grim/set.h"
 #include "engines/grim/textobject.h"
 #include "engines/grim/font.h"
+#include "engines/grim/movie/movie.h"
 
 #ifdef IPHONE_IOS7
 // The app's build, from its Info.plist (backends/platform/ios7/ios7_misc.mm)
 Common::String iOS7_getBuildVersion();
+#include "backends/platform/ios7/ios7_neargrog_touch.h"
 #else
 #include "base/version.h"
 #endif
@@ -402,6 +404,26 @@ bool NearGrogTray::tap(int x, int y) {
 	}
 	_keyDown = false;
 	return true;
+}
+
+bool NearGrogTray::skip(bool movie) {
+	if (!_keys.empty())
+		return false;
+	if (movie && isMonkey()) {
+		// Monkey Island's movies only listen for Escape, outside the controls
+		g_movie->stop();
+		return true;
+	}
+	// Escape skips a movie (the game's override); '.' skips a spoken line
+	_keys.push_back(movie ? Common::KEYCODE_ESCAPE : Common::KEYCODE_PERIOD);
+	_keyDown = false;
+	return true;
+}
+
+void NearGrogTray::reportTouchMode(bool playing) {
+#ifdef IPHONE_IOS7
+	iOS7_setNearGrogTouchMode(!playing ? kNearGrogTouchHidden : (isMonkey() ? kNearGrogTouchMonkey : kNearGrogTouchGrim));
+#endif
 }
 
 // Saves the screen as a PNG next to the saved games, where the Files app

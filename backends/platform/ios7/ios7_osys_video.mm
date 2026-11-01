@@ -23,6 +23,7 @@
 #define FORBIDDEN_SYMBOL_ALLOW_ALL
 
 #include "backends/platform/ios7/ios7_osys_main.h"
+#include "backends/platform/ios7/ios7_neargrog_touch.h"
 #include "backends/platform/ios7/ios7_video.h"
 
 #include "backends/platform/ios7/ios7_app_delegate.h"
@@ -112,6 +113,7 @@ void OSystem_iOS7::engineInit() {
 
 void OSystem_iOS7::engineDone() {
 	BaseBackend::engineDone();
+	iOS7_setNearGrogTouchMode(kNearGrogTouchHidden); // Near-Grog
 	// Allow the device going to sleep if idle while in the Launcher
 	dispatch_async(dispatch_get_main_queue(), ^{
 		[[UIApplication sharedApplication] setIdleTimerDisabled:NO];

@@ -48,7 +48,8 @@ enum InputEvent {
 	kInputJoystickButtonDown,
 	kInputJoystickButtonUp,
 	kInputScreenChanged,
-	kInputTouchModeChanged
+	kInputTouchModeChanged,
+	kInputNearGrogQuick // Near-Grog: value1 0 = quick save, 1 = quick load
 };
 
 enum ScreenOrientation {

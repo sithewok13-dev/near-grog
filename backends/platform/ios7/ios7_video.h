@@ -43,7 +43,7 @@ typedef struct {
 
 uint getSizeNextPOT(uint size);
 
-@interface iPhoneView : UIView {
+@interface iPhoneView : UIView <UIGestureRecognizerDelegate> {
 	Common::List<InternalEvent> _events;
 	NSLock *_eventLock;
 	SoftKeyboard *_keyboardView;
@@ -85,6 +85,9 @@ uint getSizeNextPOT(uint size);
 - (BOOL)isKeyboardShown;
 
 - (void)handleMainMenuKey;
+
+// Near-Grog: the Grim games' touch overlay is up (ScummVM's corner icons hide)
+- (void)setNearGrogOverlayShown:(BOOL)shown;
 
 - (void)applicationSuspend;
 - (void)applicationResume;

@@ -38,9 +38,9 @@ Common::String iOS7_getDocumentsDir() {
 	return Common::String([url fileSystemRepresentation]);
 }
 
-// Near-Grog: Grim Fandango and Escape from Monkey Island are played with the
-// touch gamepad, so it comes up by itself there (its own setting, which the
-// swipe that shows and hides the gamepad changes while one of them runs)
+// Near-Grog: Grim Fandango and Escape from Monkey Island have their own touch
+// overlay (ios7_neargrog_touch.mm), so Apple's gamepad stays off there unless
+// the swipe that shows and hides it turns it on (a setting of their own)
 static bool nearGrogGamepadGame() {
 	return ConfMan.getActiveDomain() != nullptr && ConfMan.get("engineid") == "grim";
 }
@@ -51,7 +51,7 @@ const char *iOS7_gamepadSetting() {
 
 bool iOS7_gamepadWanted() {
 	if (nearGrogGamepadGame())
-		return !ConfMan.hasKey("neargrog_grim_gamepad") || ConfMan.getBool("neargrog_grim_gamepad");
+		return ConfMan.hasKey("neargrog_grim_gamepad") && ConfMan.getBool("neargrog_grim_gamepad");
 	return ConfMan.getBool("gamepad_controller");
 }
 

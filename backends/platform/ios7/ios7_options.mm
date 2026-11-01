@@ -30,6 +30,7 @@
 
 #include "common/translation.h"
 #include "backends/platform/ios7/ios7_osys_main.h"
+#include "backends/platform/ios7/ios7_neargrog_touch.h"
 
 #include <TargetConditionals.h>
 
@@ -571,6 +572,8 @@ void OSystem_iOS7::applyOrientationSettings() {
 
 void OSystem_iOS7::applyTouchSettings(bool _3dMode, bool overlayShown) {
 #if TARGET_OS_IOS
+	// Near-Grog: the Grim games' touch overlay hides under ScummVM's dialogs
+	iOS7_setNearGrogGuiShown(overlayShown);
 	Common::String setting;
 	Common::String defaultMode;
 

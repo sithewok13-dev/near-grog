@@ -27,6 +27,7 @@
 #include "common/config-manager.h"
 #include "backends/graphics/ios/ios-graphics.h"
 #include "backends/platform/ios7/ios7_osys_main.h"
+#include "engines/engine.h"
 
 static const int kQueuedInputEventDelay = 50;
 
@@ -149,6 +150,27 @@ bool OSystem_iOS7::pollEvent(Common::Event &event) {
 		case kInputTouchModeChanged:
 			handleEvent_touchModeChanged();
 			break;
+
+		case kInputNearGrogQuick:
+			// Near-Grog: QUICK SAVE / QUICK LOAD on the Grim games' overlay,
+			// in a slot of their own
+			if (g_engine) {
+				const int kQuickSlot = 99;
+				if (internalEvent.value1 == 0) {
+					if (g_engine->canSaveGameStateCurrently() &&
+						g_engine->saveGameState(kQuickSlot, "Quick save", false).getCode() == Common::kNoError)
+						displayMessageOnOSD(_("Quick saved"));
+					else
+						displayMessageOnOSD(_("Can't save right now"));
+				} else {
+					if (g_engine->canLoadGameStateCurrently() &&
+						g_engine->loadGameState(kQuickSlot).getCode() == Common::kNoError)
+						displayMessageOnOSD(_("Quick loaded"));
+					else
+						displayMessageOnOSD(_("Can't load right now"));
+				}
+			}
+			return false;
 
 		default:
 			break;
