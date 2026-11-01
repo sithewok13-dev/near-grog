@@ -50,16 +50,22 @@ static UIBezierPath *nearGrogLabel(NSString *text) {
 			CTRunGetPositions(run, CFRangeMake(i, 1), &position);
 			CGPathRef glyphPath = CTFontCreatePathForGlyph(runFont, glyph, NULL);
 			if (glyphPath) {
-				// Glyphs are drawn y-up; UIKit is y-down
-				CGAffineTransform t = CGAffineTransformMake(1, 0, 0, -1, position.x, position.y);
+				// Glyph outlines are y-up, and so is the gamepad's button
+				// drawing (flipping them showed the labels upside down)
+				CGAffineTransform t = CGAffineTransformMakeTranslation(position.x, position.y);
 				CGPathAddPath(path, &t, glyphPath);
 				CGPathRelease(glyphPath);
 			}
 		}
 	}
+	// Centred, and shrunk to fit well inside the button (at full size the
+	// words spilled over the edge)
 	CGRect bounds = CGPathGetBoundingBox(path);
+	const CGFloat maxWidth = 20, maxHeight = 8;
+	CGFloat scale = MIN(maxWidth / MAX(bounds.size.width, 1), maxHeight / MAX(bounds.size.height, 1));
 	UIBezierPath *label = [UIBezierPath bezierPathWithCGPath:path];
 	[label applyTransform:CGAffineTransformMakeTranslation(-CGRectGetMidX(bounds), -CGRectGetMidY(bounds))];
+	[label applyTransform:CGAffineTransformMakeScale(scale, scale)];
 	CGPathRelease(path);
 	CFRelease(line);
 	[string release];
