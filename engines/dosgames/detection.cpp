@@ -29,6 +29,8 @@ namespace DosGames {
 static const PlainGameDescriptor dosGames[] = {
 	{ "foolsdos", "The Fool's Errand (DOS)" },
 	{ "dondra", "Dondra: A New Beginning (Questmaster I)" },
+	{ "countdown", "Countdown" },
+	{ "altereddestiny", "Altered Destiny" },
 	{ nullptr, nullptr }
 };
 
@@ -58,6 +60,32 @@ static const DosGameDescription gameDescriptions[] = {
 			GUIO1(GUIO_NOSPEECH)
 		},
 		kGameDondra
+	},
+	{
+		{
+			"countdown",
+			"",
+			AD_ENTRY2s("COUNT.EXE", "5211ede6da34e87b36507eb3c1399892", 105205,
+			           "TITLE.CNT", "c2d31dfd3cb398a83e70e025469f36d3", 153299),
+			Common::EN_ANY,
+			Common::kPlatformDOS,
+			ADGF_TESTING,
+			GUIO1(GUIO_NOSPEECH)
+		},
+		kGameCountdown
+	},
+	{
+		{
+			"altereddestiny",
+			"",
+			AD_ENTRY2s("exe.exe", "edf303e9416b1931117a037199aa641c", 273163,
+			           "dataz.dat", "3c31839d43c30f99b48842442ada9ff5", 48576),
+			Common::EN_ANY,
+			Common::kPlatformDOS,
+			ADGF_TESTING,
+			GUIO1(GUIO_NOSPEECH)
+		},
+		kGameAlteredDestiny
 	},
 	{ AD_TABLE_END_MARKER, kGameFoolsErrand }
 };
