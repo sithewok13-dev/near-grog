@@ -65,6 +65,7 @@ public:
 protected:
 
 	bool _simplified;
+	bool _large; // Near-Grog: Windows-version large container
 
 	uint _lenObjs; // In the case of simple container, length of an object
 	uint _numObjs;

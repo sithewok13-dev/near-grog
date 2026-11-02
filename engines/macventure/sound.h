@@ -54,6 +54,7 @@ class SoundAsset {
 
 public:
 	SoundAsset(Container *container, ObjID id);
+	SoundAsset(Common::SeekableReadStream *winSound, ObjID id); // Near-Grog
 	~SoundAsset();
 
 	void play(Audio::Mixer *mixer, Audio::SoundHandle *soundHandle);
@@ -68,6 +69,7 @@ private:
 	void decode44(Common::SeekableReadStream *stream);
 	void decode78(Common::SeekableReadStream *stream);
 	void decode7e(Common::SeekableReadStream *stream);
+	void decodeWindows(Common::SeekableReadStream *stream); // Near-Grog
 
 private:
 
@@ -92,6 +94,8 @@ private:
 private:
 
 	Container *_container;
+	bool _windows; // Near-Grog: sounds are the program's IMSOUND resources
+	Common::Path _soundPath;
 	Common::HashMap<ObjID, SoundAsset*> _assets;
 	Audio::SoundHandle _handle;
 	Audio::Mixer *_mixer;

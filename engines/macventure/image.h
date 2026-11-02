@@ -74,6 +74,11 @@ public:
 	int getWidth();
 	int getHeight();
 
+	// Near-Grog: the Windows versions have colour pictures (a 2-bit depth after
+	// the size). remap maps their palette indices to the screen's, invert gives
+	// the colour drawn for selected objects.
+	static void setWindowsFormat(bool windows, const byte *remap = nullptr, const byte *invert = nullptr);
+
 private:
 	void decodePPIC(Common::SeekableReadStream *baseStream, Common::Array<byte> &data, uint &bitHeight, uint &bitWidth, uint &rowBytes);
 	void decodePPIC(ObjID id, Common::Array<byte> &data, uint &bitHeight, uint &bitWidth, uint &rowBytes);
@@ -90,6 +95,10 @@ private:
 	void blitBIC(Graphics::ManagedSurface *target, int ox, int oy, const Common::Array<byte> &data, uint bitHeight, uint bitWidth, uint rowBytes);
 	void blitOR(Graphics::ManagedSurface *target, int ox, int oy, const Common::Array<byte> &data, uint bitHeight, uint bitWidth, uint rowBytes);
 	void blitXOR(Graphics::ManagedSurface *target, int ox, int oy, const Common::Array<byte> &data, uint bitHeight, uint bitWidth, uint rowBytes);
+
+	// Near-Grog: colour pictures
+	void convertToColor(uint maskDepth);
+	void blitColor(Graphics::ManagedSurface *target, int ox, int oy, BlitMode mode);
 
 	void calculateSectionToDraw(Graphics::ManagedSurface *target, int &ox, int &oy, uint bitWidth, uint bitHeight, uint &sx, uint &sy, uint &w, uint &h);
 	void calculateSectionInDirection(uint targetWhole, uint originWhole, int &originPosition, uint &startPosition, uint &blittedWhole);
@@ -111,6 +120,11 @@ private:
 	uint16 _maskRowBytes;
 	uint16 _maskBitWidth;
 	uint16 _maskBitHeight;
+
+	// Near-Grog: colour pictures
+	uint _decodedDepth;           // depth of the last decoded picture (0 = 1 bit)
+	bool _isColor;
+	Common::Array<byte> _colorData; // one byte a pixel, screen palette
 };
 
 } // End of namespace MacVenture

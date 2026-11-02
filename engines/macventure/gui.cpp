@@ -34,6 +34,7 @@
 #include "image/bmp.h"
 #include "graphics/macgui/macfontmanager.h"
 #include "graphics/macgui/mactextwindow.h"
+#include "graphics/paletteman.h"
 #include "gui/gui-manager.h"
 
 #include "macventure/gui.h"
@@ -158,6 +159,11 @@ void Gui::initGUI() {
 	_screen.create(kScreenWidth, kScreenHeight, Graphics::PixelFormat::createFormatCLUT8());
 	_wm->setScreen(&_screen);
 
+	if (_engine->isWindowsVersion()) // Near-Grog
+		initWindowsPalette();
+	else
+		ImageAsset::setWindowsFormat(false);
+
 	// Menu
 	_menu = _wm->addMenu();
 	if (!loadMenus())
@@ -179,6 +185,48 @@ void Gui::initGUI() {
 
 	draw();
 
+}
+
+// Near-Grog: the Windows versions draw with a 256-colour palette. The window
+// manager's colours keep entries 0-6; the game's own entries 0-6 are drawn
+// with the nearest remaining colour.
+void Gui::initWindowsPalette() {
+	static const byte kWMColors[7 * 3] = {
+		0x00, 0x00, 0x00, 0x80, 0x80, 0x80, 0x88, 0x88, 0x88, 0xee, 0xee, 0xee,
+		0xff, 0xff, 0xff, 0x00, 0xff, 0x00, 0x00, 0xcf, 0x00
+	};
+	const byte *gamePal = _engine->getWindowsPalette();
+	byte pal[256 * 3];
+	memcpy(pal, gamePal, sizeof(pal));
+	memcpy(pal, kWMColors, sizeof(kWMColors));
+
+	// Nearest colour among the entries a game picture may use (not the greens,
+	// which mark transparency)
+	auto nearest = [&](int r, int g, int b) {
+		int best = 0;
+		int bestDist = 0x7fffffff;
+		for (int i = 0; i < 256; i++) {
+			if (i == kColorGreen || i == kColorGreen2)
+				continue;
+			int dr = pal[i * 3] - r, dg = pal[i * 3 + 1] - g, db = pal[i * 3 + 2] - b;
+			int dist = dr * dr + dg * dg + db * db;
+			if (dist < bestDist) {
+				bestDist = dist;
+				best = i;
+			}
+		}
+		return best;
+	};
+
+	byte remap[256], invert[256];
+	for (int i = 0; i < 256; i++)
+		remap[i] = (i < 7) ? nearest(gamePal[i * 3], gamePal[i * 3 + 1], gamePal[i * 3 + 2]) : i;
+	for (int i = 0; i < 256; i++)
+		invert[i] = nearest(255 - pal[i * 3], 255 - pal[i * 3 + 1], 255 - pal[i * 3 + 2]);
+
+	ImageAsset::setWindowsFormat(true, remap, invert);
+	g_system->getPaletteManager()->setPalette(pal, 0, 256);
+	_wm->passPalette(pal, 256);
 }
 
 void Gui::reloadInternals() {
@@ -242,7 +290,7 @@ bool Gui::decodeTitleScreen() {
 			ImageAsset *title = new ImageAsset(stream);
 
 			_screen.fillRect(Common::Rect(kScreenWidth, kScreenHeight), kColorBlack);
-			title->blitInto(&_screen, 0, (kScreenHeight - title->getHeight()) / 2, kBlitDirect);
+			title->blitInto(&_screen, (kScreenWidth - title->getWidth()) / 2, (kScreenHeight - title->getHeight()) / 2, kBlitDirect); // Near-Grog: centred
 
 			delete title;
 		} else {
@@ -793,6 +841,9 @@ void Gui::drawCommandsWindow() {
 			kColorBlack,
 			Graphics::kTextAlignCenter);
 	} else {
+		// Near-Grog: clear the "Click to continue" text the buttons may not cover
+		Graphics::ManagedSurface *srf = _controlsWindow->getWindowSurface();
+		srf->fillRect(Common::Rect(0, 0, srf->w, srf->h), kColorWhite);
 		Common::Array<CommandButton>::const_iterator it = _controlData->begin();
 		for (; it != _controlData->end(); ++it) {
 			CommandButton button = *it;
