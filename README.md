@@ -33,6 +33,8 @@ You need your own copies of the games. Near-Grog never includes game files.
    original program on a minimal PC (8086, VGA mode 13h, mouse, keyboard, timer, AdLib;
    no Microsoft or IBM code). Point it at the game's folder as installed, or at a
    folder holding the game's `.zip` (over 50 MB, it asks you to unzip it).
+   Also **Countdown** (Access, 1990) and **Altered Destiny** (Accolade, 1990) on
+   the same engine: playable, testing.
    ScummVM's existing `fool` engine covers the Mac versions of The Fool's Errand.
 5. **Transylvania (C64, 1984 and 1985) and Crimson Crown (C64)**: playable, testing, in
    the same engine as Dark Lord (their own programs on the minimal C64). Disk images
