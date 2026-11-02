@@ -840,6 +840,9 @@ void Gui::drawCommandsWindow() {
 			kColorBlack,
 			Graphics::kTextAlignCenter);
 	} else {
+		// Near-Grog: clear the "Click to continue" text the buttons may not cover
+		Graphics::ManagedSurface *srf = _controlsWindow->getWindowSurface();
+		srf->fillRect(Common::Rect(0, 0, srf->w, srf->h), kColorWhite);
 		Common::Array<CommandButton>::const_iterator it = _controlData->begin();
 		for (; it != _controlData->end(); ++it) {
 			CommandButton button = *it;

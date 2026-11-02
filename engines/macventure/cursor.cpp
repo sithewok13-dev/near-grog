@@ -60,11 +60,13 @@ bool Cursor::processEvent(const Common::Event &event) {
 		return true;
 	}
 	if (event.type == Common::EVENT_LBUTTONDOWN) {
+		_pos = event.mouse; // Near-Grog: taps may come without a mouse move first
 		_shiftPressed = (g_system->getEventManager()->getModifierState() & Common::KBD_SHIFT) != 0;
 		changeState(kButtonDownCol);
 		return true;
 	}
 	if (event.type == Common::EVENT_LBUTTONUP) {
+		_pos = event.mouse; // Near-Grog
 		changeState(kButtonUpCol);
 		return true;
 	}
