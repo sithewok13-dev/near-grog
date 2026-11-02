@@ -39,11 +39,12 @@ namespace MacVenture {
 SoundManager::SoundManager(MacVentureEngine *engine, Audio::Mixer *mixer) {
 	_container = nullptr;
 	Common::Path filename = engine->getFilePath(kSoundPathID);
-	// Near-Grog: the Windows versions have no sound container (yet)
-	if (Common::File::exists(filename))
+	// Near-Grog: the Windows versions keep their sounds in the program,
+	// served as "<file name>-<id>" by the Windows loader
+	_windows = engine->isWindowsVersion();
+	if (!_windows)
 		_container = new Container(filename);
-	else
-		warning("SoundManager: No sound file '%s', sounds are off", filename.toString().c_str());
+	_soundPath = filename;
 	_mixer = mixer;
 	debugC(1, kMVDebugSound, "Created sound manager with file %s", filename.toString().c_str());
 }
@@ -60,16 +61,28 @@ SoundManager::~SoundManager() {
 }
 
 uint32 SoundManager::playSound(ObjID sound) {
-	if (!_container) // Near-Grog
-		return 0;
 	ensureLoaded(sound);
+	if (!_assets[sound]) // Near-Grog: missing Windows sound
+		return 0;
 	_assets[sound]->play(_mixer, &_handle);
 	return _assets[sound]->getPlayLength();
 }
 
 void SoundManager::ensureLoaded(ObjID sound) {
-	if (!_assets.contains(sound))
-		_assets[sound] = new SoundAsset(_container, sound);
+	if (_assets.contains(sound))
+		return;
+	if (_windows) { // Near-Grog
+		Common::File file;
+		Common::Path name(_soundPath.toString() + Common::String::format("-%d", sound));
+		if (!file.open(name)) {
+			warning("SoundManager: Missing sound %d", sound);
+			_assets[sound] = nullptr;
+			return;
+		}
+		_assets[sound] = new SoundAsset(&file, sound);
+		return;
+	}
+	_assets[sound] = new SoundAsset(_container, sound);
 }
 
 SoundAsset::SoundAsset(Container *container, ObjID id) :
@@ -110,6 +123,57 @@ SoundAsset::SoundAsset(Container *container, ObjID id) :
 	}
 
 	delete stream;
+}
+
+// Near-Grog: a Windows IMSOUND resource. Header: type (1 = 8-bit samples,
+// 0 = 4-bit deltas), rate, number of samples; the data starts at 0x2c.
+SoundAsset::SoundAsset(Common::SeekableReadStream *winSound, ObjID id) :
+	_container(nullptr), _id(id), _length(0), _frequency(1) {
+	decodeWindows(winSound);
+}
+
+void SoundAsset::decodeWindows(Common::SeekableReadStream *stream) {
+	uint16 type = stream->readUint16LE();
+	_frequency = stream->readUint16LE();
+	uint32 samples = stream->readUint32LE();
+	if (!_frequency)
+		_frequency = 11025;
+	stream->seek(0x2c);
+
+	if (type == 1) {
+		_data.resize(samples);
+		_length = stream->read(_data.data(), samples);
+		return;
+	}
+
+	// One delta a nibble, low nibble first: 0-7 add, 8-14 subtract 1-7,
+	// 15 is followed by a whole sample in the next two nibbles
+	if (!samples)
+		return;
+	byte sample = stream->readByte();
+	_data.push_back(sample);
+	byte codes = 0;
+	bool lowNibble = false;
+	for (uint32 i = 1; i < samples && !stream->eos(); i++) {
+		lowNibble = !lowNibble;
+		if (lowNibble)
+			codes = stream->readByte();
+		int code = codes & 0xf;
+		if (code == 15) {
+			byte next = stream->readByte();
+			if (lowNibble) {
+				sample = (codes & 0xf0) | (next & 0x0f);
+				codes = next;
+			} else {
+				sample = next;
+			}
+		} else {
+			sample = (byte)(sample + ((code < 8) ? code : -(code - 7)));
+		}
+		_data.push_back(sample);
+		codes >>= 4;
+	}
+	_length = _data.size();
 }
 
 SoundAsset::~SoundAsset() {

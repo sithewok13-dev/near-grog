@@ -161,6 +161,8 @@ void Gui::initGUI() {
 
 	if (_engine->isWindowsVersion()) // Near-Grog
 		initWindowsPalette();
+	else
+		ImageAsset::setWindowsFormat(false);
 
 	// Menu
 	_menu = _wm->addMenu();

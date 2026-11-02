@@ -478,6 +478,15 @@ Common::Path WinVersionLoader::load(const Common::String &exeName) {
 	const Common::String &kgraphic = names[0], &filter = names[1], &object = names[2];
 	const Common::String &text = names[3], &graphics = names[4], &gamefile = names[5];
 
+	// Sounds: IMSOUND resources 1000 + sound id
+	for (uint i = 0; i < _resources.size(); i++) {
+		const NEResource &r = _resources[i];
+		if (r.type || !r.typeName.equalsIgnoreCase("IMSOUND") || r.id < 1000)
+			continue;
+		Common::Array<byte> data(&_exe[r.offset], r.length);
+		_archive->add(Common::Path(Common::String::format("mvwin-sound-%d", r.id - 1000)), data);
+	}
+
 	// Palette (RCDATA 1002: a LOGPALETTE)
 	const NEResource *pal = findResource(10, 1002);
 	if (pal && pal->length >= 4 + 256 * 4) {
@@ -541,7 +550,7 @@ Common::Path WinVersionLoader::load(const Common::String &exeName) {
 	files.push_back(filter);
 	files.push_back(text);
 	files.push_back(graphics);
-	files.push_back("mvwin-sound"); // sounds are IMSOUND resources in the program, not yet supported
+	files.push_back("mvwin-sound"); // the sounds are served as "mvwin-sound-<id>"
 	fork.add(MKTAG('S', 'T', 'R', '#'), 0x81, stringList(files));
 
 	// Articles; the program's tables are "", "the ", "a ", "an " and "he", "she", "it", ""
