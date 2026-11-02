@@ -203,6 +203,9 @@ private:
 	void openGameMenu();
 	void updateHolds();
 	void updateMomentum();
+	void pickUpFromShelf(Common::Point p);
+	void injectToHidden(Common::EventType type, Common::Point hidden);
+	int shelfColumns() const;
 
 	Gui *_gui;
 	MacVentureEngine *_engine;
@@ -231,6 +234,13 @@ private:
 	Common::Array<Slot> _slots;
 	Common::Array<Slot> _exitRects;
 	int _shelfScroll;
+	int _shelfMax;           // how far the shelf can scroll
+	int _shelfCount;         // the items on it
+	bool _shelfPending;      // a finger on an item: scroll or pick up?
+	ObjID _shelfPressObj;
+	bool _shelfScrolling;
+	float _shelfVelocity;
+	Common::Rect _shelfBar, _shelfLeft, _shelfRight;
 
 	// Text window
 	Common::Array<Common::String> _paras;

@@ -72,7 +72,7 @@ const byte kBlue[3] = { 60, 120, 200 };
 ModernUI::ModernUI(Gui *gui, MacVentureEngine *engine) :
 	_gui(gui), _engine(engine), _w(0), _h(0), _portrait(false), _layout(kLayoutC2), _look(kLookWin31), _opacity(100),
 	_verbH(0), _verbGap(0), _verbFont(18), _textFont(17), _titleFont(16), _roomTitleFont(22), _roundButtons(true),
-	_shelfRows(1), _shelfScroll(0), _wrapWidth(0), _wrapFont(nullptr), _scroll(0), _userScrolled(false), _maximized(false),
+	_shelfRows(1), _shelfScroll(0), _shelfMax(0), _shelfCount(0), _shelfPending(false), _shelfPressObj(0), _shelfScrolling(false), _shelfVelocity(0), _wrapWidth(0), _wrapFont(nullptr), _scroll(0), _userScrolled(false), _maximized(false),
 	_velocity(0), _lastMomentum(0), _pressInside(false), _pressTime(0), _holdFired(false), _pressScroll(0), _lastMoveTime(0),
 	_dragging(false), _engineCapture(false), _lastTitleTap(0), _lastExitTap(0), _lastExitIndex(-1),
 	_forcedObj(0), _lastForcedObj(0), _forcedRef(kNoWindow), _lastForcedRef(kNoWindow), _forced(false), _dialogOpen(false) {
@@ -420,6 +420,12 @@ ModernUI::Hit ModernUI::hitTest(Common::Point p) {
 	if (shelfShown() && _shelfBox.contains(p)) {
 		if (_shelfExits.contains(p))
 			return Hit(kRegionExits, -1);
+		if (_shelfLeft.contains(p))
+			return Hit(kRegionShelf, -2);
+		if (_shelfRight.contains(p))
+			return Hit(kRegionShelf, -3);
+		if (_shelfBar.contains(p))
+			return Hit(kRegionShelf, -4);
 		for (uint i = 0; i < _slots.size(); i++) {
 			if (_slots[i].rect.contains(p))
 				return Hit(kRegionShelf, i);
@@ -500,15 +506,12 @@ bool ModernUI::processEvent(Common::Event &event) {
 			return false;
 		}
 		case kRegionShelf:
-			if (_press.index >= 0 && !_engine->needsClickToContinue()) {
-				WindowReference inv = playerInventory();
-				_forced = true;
-				_forcedObj = _lastForcedObj = _slots[_press.index].obj;
-				_forcedRef = _lastForcedRef = inv;
-				event.mouse = windowCenter(inv);
-				_engineCapture = true;
-				return false;
-			}
+			// An item: picked up when dragged upward or out, or after a brief
+			// hold; a sideways swipe scrolls the shelf instead
+			_shelfScrolling = false;
+			_shelfVelocity = 0;
+			_shelfPending = _press.index >= 0 && !_engine->needsClickToContinue();
+			_shelfPressObj = _press.index >= 0 ? _slots[_press.index].obj : 0;
 			return true;
 		default:
 			_gui->markRedraw();
@@ -534,6 +537,29 @@ bool ModernUI::processEvent(Common::Event &event) {
 			return true;
 		if (ABS(p.x - _pressPoint.x) > kDragThreshold || ABS(p.y - _pressPoint.y) > kDragThreshold)
 			_dragging = true;
+		if (_press.region == kRegionShelf && _press.index != -2 && _press.index != -3) {
+			const int dx = p.x - _pressPoint.x, dy = p.y - _pressPoint.y;
+			if (_shelfPending && !_shelfScrolling) {
+				if ((dy < -kDragThreshold && -dy > ABS(dx)) || !_shelfItems.contains(p)) {
+					pickUpFromShelf(p);
+					event.mouse = dropPoint(p);
+					_lastPoint = p;
+					return false;
+				}
+				if (ABS(dx) > kDragThreshold && ABS(dx) >= ABS(dy))
+					_shelfScrolling = true;
+			} else if (!_shelfPending && _dragging) {
+				_shelfScrolling = true;
+			}
+			if (_shelfScrolling) {
+				const uint32 dt = MAX<uint32>(1, now - _lastMoveTime);
+				_shelfVelocity = 0.7f * _shelfVelocity + 0.3f * (float)(_lastPoint.x - p.x) / dt;
+				_shelfScroll = CLIP(_shelfScroll - (p.x - _lastPoint.x), 0, _shelfMax);
+			}
+			_lastPoint = p;
+			_lastMoveTime = now;
+			return true;
+		}
 		if (_press.region == kRegionText && _dragging) {
 			const uint32 dt = MAX<uint32>(1, now - _lastMoveTime);
 			_velocity = 0.7f * _velocity + 0.3f * (float)(_lastPoint.y - p.y) / dt;
@@ -546,8 +572,6 @@ bool ModernUI::processEvent(Common::Event &event) {
 			_scroll = _pressScroll + (p.y - _pressPoint.y) * maxScroll() / span;
 			_userScrolled = true;
 			clampScroll();
-		} else if (_press.region == kRegionShelf && _press.index < 0 && _dragging) {
-			_shelfScroll = MAX(0, _shelfScroll - (p.x - _lastPoint.x));
 		} else {
 			Hit h = hitTest(p);
 			_pressInside = h.region == _press.region && h.index == _press.index;
@@ -574,6 +598,31 @@ bool ModernUI::processEvent(Common::Event &event) {
 			else
 				event.mouse = press.region == kRegionSelf ? windowCenter(kSelfWindow) : windowCenter(playerInventory());
 			return false;
+		}
+		if (press.region == kRegionShelf) {
+			const bool pending = _shelfPending;
+			_shelfPending = false;
+			if (_shelfScrolling) {
+				_shelfScrolling = false;
+				_lastMomentum = now;
+				return true;
+			}
+			_shelfVelocity = 0;
+			if (pending) {
+				// A tap on an item: a click on it
+				pickUpFromShelf(_pressPoint);
+				event.mouse = windowCenter(playerInventory());
+				_engineCapture = false;
+				return false;
+			}
+			const int col = _itemSize.x + 14;
+			if (press.index == -2)
+				_shelfScroll = MAX(0, _shelfScroll - col);
+			else if (press.index == -3)
+				_shelfScroll = MIN(_shelfMax, _shelfScroll + col);
+			else if (press.index == -4 && !_dragging)
+				_shelfScroll = CLIP(_shelfScroll + (p.x < (_shelfBar.left + _shelfBar.right) / 2 ? -1 : 1) * _shelfItems.width() / 2, 0, _shelfMax);
+			return true;
 		}
 		Hit h = hitTest(p);
 		const bool inside = h.region == press.region && h.index == press.index;
@@ -755,7 +804,31 @@ void ModernUI::openGameMenu() {
 	_gui->handleMenuAction(kItems[picked].action);
 }
 
+void ModernUI::pickUpFromShelf(Common::Point p) {
+	_shelfPending = false;
+	WindowReference inv = playerInventory();
+	if (inv == kNoWindow || _shelfPressObj == 0)
+		return;
+	_forced = true;
+	_forcedObj = _lastForcedObj = _shelfPressObj;
+	_forcedRef = _lastForcedRef = inv;
+	_engineCapture = true;
+	injectToHidden(Common::EVENT_LBUTTONDOWN, windowCenter(inv));
+}
+
+void ModernUI::injectToHidden(Common::EventType type, Common::Point hidden) {
+	Common::Event ev;
+	ev.type = type;
+	ev.mouse = hidden;
+	_gui->processHiddenEvent(ev);
+}
+
 void ModernUI::updateHolds() {
+	// A brief hold on a shelf item picks it up
+	if (_press.region == kRegionShelf && _shelfPending && !_shelfScrolling && g_system->getMillis() - _pressTime >= 250) {
+		pickUpFromShelf(_pointer);
+		return;
+	}
 	if (_press.region != kRegionButton || _holdFired || !_pressInside)
 		return;
 	const uint32 held = g_system->getMillis() - _pressTime;
@@ -768,6 +841,21 @@ void ModernUI::updateHolds() {
 
 void ModernUI::updateMomentum() {
 	const uint32 now = g_system->getMillis();
+	// The shelf: momentum, and following an item dragged to its edge
+	if (_press.region == kRegionNone && ABS(_shelfVelocity) >= 0.02f) {
+		const uint32 dt = MIN<uint32>(100, now - _lastMomentum);
+		_shelfScroll = CLIP(_shelfScroll + (int)(_shelfVelocity * dt), 0, _shelfMax);
+		for (uint32 i = 0; i < dt; i += 16)
+			_shelfVelocity *= 0.95f;
+		if (_shelfScroll <= 0 || _shelfScroll >= _shelfMax)
+			_shelfVelocity = 0;
+	}
+	if (!_gui->_draggedObjects.empty() && _shelfItems.contains(_pointer)) {
+		if (_pointer.x < _shelfItems.left + 40)
+			_shelfScroll = MAX(0, _shelfScroll - 10);
+		else if (_pointer.x > _shelfItems.right - 40)
+			_shelfScroll = MIN(_shelfMax, _shelfScroll + 10);
+	}
 	if (_press.region != kRegionNone || ABS(_velocity) < 0.02f) {
 		_lastMomentum = now;
 		if (_press.region == kRegionNone)
@@ -1251,19 +1339,15 @@ void ModernUI::drawSelf(const Common::Rect &r) {
 	drawObjectImage(data.children[0].obj, r, false);
 }
 
+int ModernUI::shelfColumns() const {
+	return MAX(1, (_shelfItems.width() - 12) / (_itemSize.x + 14));
+}
+
 void ModernUI::drawShelf() {
 	const bool dark = _look == kLookDark;
 	const uint32 sep = dark ? rgb(90, 90, 100) : rgb(kDarkGray[0], kDarkGray[1], kDarkGray[2]);
-	if (dark) {
-		roundRect(_shelfBox, 18, rgb(kPanel[0], kPanel[1], kPanel[2]), rgb(kEdge[0], kEdge[1], kEdge[2]), 2);
-		text("INVENTORY", _shelfBox.left + 16, _shelfBox.top + 9, 200, rgb(200, 200, 210), font(15, true));
-	} else {
-		Common::Rect in = titled(_shelfBox, "Inventory", 15);
-		_out.fillRect(in, rgb(255, 255, 255));
-	}
 
-	// The player's things, in rows
-	_slots.clear();
+	// The player's things
 	WindowReference inv = playerInventory();
 	Common::Array<ObjID> items;
 	if (inv != kNoWindow) {
@@ -1273,28 +1357,68 @@ void ModernUI::drawShelf() {
 				items.push_back(data.children[i].obj);
 		}
 	}
-	const int gx = 14, gy = 10;
+	_shelfCount = items.size();
+	const int gx = 14, gy = _portrait ? 6 : 10;
 	const int sw = _itemSize.x, sh = _itemSize.y;
-	const int cols = MAX(1, (_shelfItems.width() - 12) / (sw + gx));
-	const int perPage = cols * _shelfRows;
+	const int cols = shelfColumns();
 	const int totalCols = MAX<int>(cols, ((int)items.size() + _shelfRows - 1) / _shelfRows);
-	const int maxShift = MAX(0, (totalCols - cols) * (sw + gx));
-	_shelfScroll = MIN(_shelfScroll, maxShift);
-	const int n = MAX<int>(perPage, items.size());
-	Common::Rect clip = _shelfItems;
+	_shelfMax = MAX(0, (totalCols - cols) * (sw + gx));
+	_shelfScroll = CLIP(_shelfScroll, 0, _shelfMax);
+	const bool overflow = _shelfMax > 0;
+
+	// The title shows the count when some are out of sight
+	Common::String title = overflow ? Common::String::format("Inventory (%d)", (int)items.size()) : Common::String("Inventory");
+	if (dark) {
+		roundRect(_shelfBox, 18, rgb(kPanel[0], kPanel[1], kPanel[2]), rgb(kEdge[0], kEdge[1], kEdge[2]), 2);
+		title.toUppercase();
+		text(title, _shelfBox.left + 16, _shelfBox.top + 9, 300, rgb(200, 200, 210), font(15, true));
+	} else {
+		Common::Rect in = titled(_shelfBox, title, 15);
+		_out.fillRect(in, rgb(255, 255, 255));
+	}
+
+	// The scroll bar along the bottom: a Windows one, or a thin line in the dark
+	const int barH = dark ? 6 : 20;
+	_shelfBar = Common::Rect(_shelfItems.left + 4, _shelfItems.bottom - barH - 4, _shelfItems.right - 4, _shelfItems.bottom - 4);
+	_shelfLeft = _shelfRight = Common::Rect();
+	if (!dark) {
+		_shelfLeft = Common::Rect(_shelfBar.left, _shelfBar.top, _shelfBar.left + 20, _shelfBar.bottom);
+		_shelfRight = Common::Rect(_shelfBar.right - 20, _shelfBar.top, _shelfBar.right, _shelfBar.bottom);
+		_out.fillRect(_shelfBar, rgb(224, 224, 224));
+		_out.frameRect(_shelfBar, rgb(0, 0, 0));
+		bevel(_shelfLeft, _press.region == kRegionShelf && _press.index == -2, 2);
+		bevel(_shelfRight, _press.region == kRegionShelf && _press.index == -3, 2);
+		const int cy = (_shelfBar.top + _shelfBar.bottom) / 2;
+		for (int i = 0; i < 6; i++) {
+			_out.vLine(_shelfLeft.left + 7 + i, cy - i, cy + i, rgb(0, 0, 0));
+			_out.vLine(_shelfRight.right - 8 - i, cy - i, cy + i, rgb(0, 0, 0));
+		}
+		const int track = _shelfBar.width() - 40;
+		const int thumbW = overflow ? MAX(24, track * cols / totalCols) : track;
+		const int tx = _shelfLeft.right + (overflow ? (track - thumbW) * _shelfScroll / _shelfMax : 0);
+		bevel(Common::Rect(tx, _shelfBar.top, tx + thumbW, _shelfBar.bottom), false, 2);
+	} else if (overflow) {
+		const int track = _shelfBar.width();
+		const int thumbW = MAX(24, track * cols / totalCols);
+		const int tx = _shelfBar.left + (track - thumbW) * _shelfScroll / _shelfMax;
+		fillRoundRect(Common::Rect(tx, _shelfBar.top + 1, tx + thumbW, _shelfBar.bottom - 1), 3, rgb(150, 150, 160));
+	}
+
+	// The items, column by column
+	_slots.clear();
+	const int n = MAX<int>(cols * _shelfRows, items.size());
 	for (int k = 0; k < n; k++) {
-		// filled column by column when there are several rows
 		const int c = k / _shelfRows, rr = k % _shelfRows;
-		const int x = _shelfItems.left + 12 + c * (sw + gx) - _shelfScroll, y = _shelfItems.top + 10 + rr * (sh + gy);
+		const int x = _shelfItems.left + 12 + c * (sw + gx) - _shelfScroll, y = _shelfItems.top + (_portrait ? 6 : 10) + rr * (sh + gy);
 		Common::Rect cell(x, y, x + sw, y + sh);
-		if (cell.right > clip.right || cell.left < clip.left)
+		if (cell.right > _shelfItems.right || cell.left < _shelfItems.left)
 			continue;
 		if (k < (int)items.size()) {
 			drawObjectImage(items[k], cell, true);
-			Slot s;
-			s.obj = items[k];
-			s.rect = cell;
-			_slots.push_back(s);
+			Slot slot;
+			slot.obj = items[k];
+			slot.rect = cell;
+			_slots.push_back(slot);
 		} else {
 			_out.frameRect(cell, sep);
 		}
@@ -1312,7 +1436,7 @@ void ModernUI::drawExits(const Common::Rect &area) {
 	// The exits window's buttons, where they are on it
 	Common::Rect src = _gui->_exitsWindow->getInnerDimensions();
 	const int sw = MAX<int>(1, src.width()), shh = MAX<int>(1, src.height());
-	const int aw = area.width() - 48, ah = area.height() - 26 - 30;
+	const int aw = area.width() - 48, ah = MIN(area.height() - 26 - 30, 90);
 	const int k = MIN(aw * 1000 / sw, ah * 1000 / shh);
 	const int ox = area.left + 20 + (aw - sw * k / 1000) / 2, oy = area.top + 26 + 15 + (ah - shh * k / 1000) / 2;
 	_exitRects.clear();
@@ -1380,7 +1504,11 @@ void ModernUI::drawTextWindow() {
 	const int ms = maxScroll();
 	if (dark) {
 		// the maximize arrow and a thin scroll indicator
-		textCentered(_maximized ? "v" : "^", Common::Rect(t.right - 36, t.top + 4, t.right - 8, t.top + 30), rgb(180, 170, 150), font(18, true));
+		const int cx = t.right - 22, cy = t.top + 17;
+		for (int i = 0; i <= 9; i++) {
+			const int half = i * 6 / 9;
+			_out.hLine(cx - half, _maximized ? cy + 5 - i : cy - 4 + i, cx + half, rgb(180, 170, 150));
+		}
 		const int trackTop = t.top + 40, trackH = t.height() - 56;
 		const int thumbH = MAX(20, ms ? trackH * a.height() / MAX(1, (int)_lines.size() * step) : trackH);
 		const int ty = trackTop + (ms ? (trackH - thumbH) * _scroll / ms : 0);

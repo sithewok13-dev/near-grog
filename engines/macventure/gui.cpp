@@ -1818,14 +1818,18 @@ Common::Point Gui::getObjMeasures(ObjID obj) {
 }
 
 bool Gui::processEvent(Common::Event &event) {
-	bool processed = false;
-
 	// Near-Grog: touches on a modern layout; the rest go on to the hidden windows
 	if (_modernActive && _modern->processEvent(event)) {
 		if (event.type != Common::EVENT_MOUSEMOVE)
 			markRedraw();
 		return true;
 	}
+	return processHiddenEvent(event);
+}
+
+// Near-Grog: an event for the window layout (the original screen)
+bool Gui::processHiddenEvent(Common::Event &event) {
+	bool processed = false;
 
 	if (event.type != Common::EVENT_MOUSEMOVE)
 		markRedraw();

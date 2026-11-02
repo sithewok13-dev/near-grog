@@ -117,6 +117,7 @@ public:
 
 	void clearControls();
 	bool processEvent(Common::Event &event);
+	bool processHiddenEvent(Common::Event &event); // Near-Grog
 	void handleMenuAction(MenuAction action);
 	void updateWindow(WindowReference winID, bool containerOpen);
 	void invertWindowColors(WindowReference winID);
