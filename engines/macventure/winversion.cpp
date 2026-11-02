@@ -60,14 +60,24 @@ const Common::ArchiveMemberPtr WinMemoryArchive::getMember(const Common::Path &p
 	return Common::ArchiveMemberPtr(new Common::GenericArchiveMember(path, *this));
 }
 
+namespace {
+
+// A read stream over shared file data, so open files cost no copies
+class SharedDataStream : public Common::MemoryReadStream {
+public:
+	SharedDataStream(const Common::SharedPtr<Common::Array<byte> > &data) :
+		Common::MemoryReadStream(data->empty() ? nullptr : data->data(), data->size(), DisposeAfterUse::NO), _data(data) {}
+
+private:
+	Common::SharedPtr<Common::Array<byte> > _data;
+};
+
+} // End of anonymous namespace
+
 Common::SeekableReadStream *WinMemoryArchive::createReadStreamForMember(const Common::Path &path) const {
 	if (!_files.contains(path))
 		return nullptr;
-	const Common::Array<byte> &data = *_files[path];
-	byte *copy = (byte *)malloc(MAX<uint32>(data.size(), 1));
-	if (data.size())
-		memcpy(copy, &data[0], data.size());
-	return new Common::MemoryReadStream(copy, data.size(), DisposeAfterUse::YES);
+	return new SharedDataStream(_files[path]);
 }
 
 // Writers for big-endian Mac resource data

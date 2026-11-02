@@ -366,8 +366,9 @@ void Gui::drawTitle() {
 		success = displayTitleScreenAndWait(4000);
 
 	if (success) {
-		if (decodeTitleScreen())
+		if (decodeTitleScreen()) {
 			displayTitleScreenAndWait(4000);
+		}
 	}
 
 	_wm->popCursor();
