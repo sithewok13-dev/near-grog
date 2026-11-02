@@ -370,15 +370,40 @@ bool inCutscene() {
 
 } // End of anonymous namespace
 
+// Near-Grog's touch map (for now, while menu taps are being worked out):
+// every tap is described on screen and in neargrog-touch-log.txt, beside the
+// saved games, with all the text the game was showing.
+static Common::String _touchLog;
+
+static void touchLog(const Common::String &entry, const Common::String &summary) {
+	_touchLog += entry;
+	if (_touchLog.size() > 60000)
+		_touchLog = _touchLog.substr(_touchLog.size() - 50000);
+	Common::OutSaveFile *out = g_system->getSavefileManager()->openForSaving("neargrog-touch-log.txt", false);
+	if (out) {
+		out->writeString(_touchLog);
+		out->finalize();
+		delete out;
+	}
+	g_system->displayMessageOnOSD(Common::U32String(summary));
+}
+
+static Common::String colorName(const Color &c) {
+	return Common::String::format("#%02x%02x%02x", c.getRed(), c.getGreen(), c.getBlue());
+}
+
 bool NearGrogTray::tap(int x, int y) {
 	if (!_keys.empty())
 		return false;
+	Common::String log = Common::String::format("Tap at %d,%d (screen %dx%d, mode %d, cutscene %d)\n",
+		x, y, g_driver->getScreenWidth(), g_driver->getScreenHeight(), (int)g_grim->getMode(), inCutscene() ? 1 : 0);
 
 	// The text on screen in rows: a list, a menu, the nearby objects. The
 	// row in a colour none of the others has is the highlighted one.
 	struct Row {
 		int top, bottom, left, right, width;
 		Color color; // the colour of its widest text
+		Common::String text; // its widest text
 	};
 	Common::Array<Row> rows;
 	const float sx = g_driver->getScreenWidth(), sy = g_driver->getScreenHeight();
@@ -388,8 +413,11 @@ bool NearGrogTray::tap(int x, int y) {
 		// Text is placed in 640x480 (coords 0) or 1920x1080 (coords 1 and 2)
 		const float scaleX = sx / (t->getCoords() == 0 ? 640.f : 1920.f);
 		const float scaleY = sy / (t->getCoords() == 0 ? 480.f : 1080.f);
+		log += Common::String::format("  text \"%s\" at %d,%d coords %d justify %d colour %s lines %d\n",
+			t->getLines()[0].c_str(), t->getX(), t->getY(), t->getCoords(), t->getJustify(), colorName(t->getFGColor()).c_str(), t->getNumLines());
 		for (int i = 0; i < t->getNumLines(); i++) {
 			Row r;
+			r.text = t->getLines()[i];
 			r.top = (int)(t->getLineY(i) * scaleY);
 			r.bottom = (int)((t->getLineY(i) + t->getFont()->getKernedHeight()) * scaleY);
 			r.left = (int)(t->getLineX(i) * scaleX);
@@ -408,6 +436,7 @@ bool NearGrogTray::tap(int x, int y) {
 					if (r.width > o.width) {
 						o.width = r.width;
 						o.color = r.color;
+						o.text = r.text;
 					}
 					joined = true;
 					break;
@@ -417,9 +446,14 @@ bool NearGrogTray::tap(int x, int y) {
 				rows.push_back(r);
 		}
 	}
-	if (rows.size() < 2)
-		return false;
 	Common::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) { return a.top < b.top; });
+	for (uint i = 0; i < rows.size(); i++)
+		log += Common::String::format("  row %u: \"%s\" x %d-%d y %d-%d colour %s\n", i, rows[i].text.c_str(),
+			rows[i].left, rows[i].right, rows[i].top, rows[i].bottom, colorName(rows[i].color).c_str());
+	if (rows.size() < 2) {
+		touchLog(log + "  -> not a list (fewer than 2 rows)\n\n", Common::String::format("Tap %d,%d: no list here", x, y));
+		return false;
+	}
 
 	int tapped = -1;
 	for (uint i = 0; i < rows.size(); i++) {
@@ -427,8 +461,10 @@ bool NearGrogTray::tap(int x, int y) {
 		if (y >= rows[i].top - pad && y < rows[i].bottom + pad && x >= rows[i].left - 40 && x < rows[i].right + 40)
 			tapped = i;
 	}
-	if (tapped < 0)
+	if (tapped < 0) {
+		touchLog(log + "  -> missed every row\n\n", Common::String::format("Tap %d,%d: missed the %u rows", x, y, rows.size()));
 		return false;
+	}
 
 	int highlighted = -1;
 	for (uint i = 0; i < rows.size(); i++) {
@@ -438,13 +474,19 @@ bool NearGrogTray::tap(int x, int y) {
 				rows[j].color.getGreen() == rows[i].color.getGreen() && rows[j].color.getBlue() == rows[i].color.getBlue())
 				same++;
 		if (same == 0) {
-			if (highlighted >= 0)
+			if (highlighted >= 0) {
+				touchLog(log + "  -> more than one row in a colour of its own\n\n",
+					Common::String::format("Tap on \"%s\": can't tell which is highlighted", rows[tapped].text.c_str()));
 				return false; // not a list we understand
+			}
 			highlighted = i;
 		}
 	}
-	if (highlighted < 0)
+	if (highlighted < 0) {
+		touchLog(log + "  -> no row in a colour of its own\n\n",
+			Common::String::format("Tap on \"%s\": no highlighted row", rows[tapped].text.c_str()));
 		return false;
+	}
 
 	// Monkey Island's lists at the bottom of the screen (nearby objects,
 	// dialogue) move with Page Up / Page Down and take Enter for dialogue: a
@@ -460,6 +502,9 @@ bool NearGrogTray::tap(int x, int y) {
 	if (!bottomList || tapped == highlighted)
 		_keys.push_back(Common::KEYCODE_RETURN);
 	_keyDown = false;
+	touchLog(log + Common::String::format("  -> tapped row %d, highlighted row %d, %s, %d keys\n\n", tapped, highlighted,
+		bottomList ? "bottom list" : "menu", _keys.size()),
+		Common::String::format("\"%s\" (highlighted: \"%s\")", rows[tapped].text.c_str(), rows[highlighted].text.c_str()));
 	return true;
 }
 
@@ -489,6 +534,14 @@ bool NearGrogTray::nearGrogControls() {
 void NearGrogTray::reportTouchMode(bool playing) {
 	if (!nearGrogControls())
 		playing = false;
+	// With Near-Grog's stick, walk the way the stick points on screen: the
+	// games' own camera-relative mode (MarioControl), switched on once
+	// through their own option, which keeps it in their preferences
+	static bool cameraRelativeDone = false;
+	if (playing && !cameraRelativeDone && !inCutscene()) {
+		cameraRelativeDone = true;
+		g_grim->debugLua("if not MarioControl and system_prefs and system_prefs.toggle_movement_mode then system_prefs:toggle_movement_mode() end");
+	}
 	// Not over the game's cutscenes either (they keep a count in the scripts)
 	if (playing && inCutscene())
 		playing = false;
