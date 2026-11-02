@@ -48,11 +48,13 @@ const struct {
 	{ "SELF", kNoCommand }, { "Go", kGo }, { "Operate", kOperate }
 };
 
-const char *const kButtonLabels[3] = { "QUICK\nSAVE", "QUICK\nLOAD", "MENU" };
+const char *const kButtonLabels[3] = { "SAVE", "LOAD", "MENU" };
 const char *const kTitleButtonLabels[3] = { "SAVE", "LOAD", "MENU" };
 
-const uint32 kSaveHold = 300;
-const uint32 kMenuHold = 450;
+// A tap opens the save/load screen (or the game's menu); held this long, the
+// quick slot (or the Near-Grog tray), with a ring filling meanwhile
+const uint32 kSaveHold = 500;
+const uint32 kMenuHold = 500;
 const int kQuickSlot = 99;
 const int kDragThreshold = 8;
 
@@ -636,8 +638,8 @@ bool ModernUI::processEvent(Common::Event &event) {
 				continueText();
 			break;
 		case kRegionButton:
-			if (inside && !_holdFired && press.index == 2 && now - _pressTime < kMenuHold)
-				buttonFired(2, false);
+			if (inside && !_holdFired && now - _pressTime < (press.index < 2 ? kSaveHold : kMenuHold))
+				buttonFired(press.index, false);
 			break;
 		case kRegionMaximize:
 			if (inside) {
@@ -745,11 +747,19 @@ void ModernUI::continueText() {
 void ModernUI::buttonFired(int i, bool hold) {
 	switch (i) {
 	case 0: {
+		if (!hold) {
+			_engine->saveGameDialog();
+			break;
+		}
 		Common::Error err = _engine->saveGameState(kQuickSlot, "Quick save");
 		g_system->displayMessageOnOSD(Common::U32String(err.getCode() == Common::kNoError ? "Saved" : "Could not save"));
 		break;
 	}
 	case 1: {
+		if (!hold) {
+			_engine->loadGameDialog();
+			break;
+		}
 		Common::String name = _engine->getSaveStateName(kQuickSlot);
 		if (!g_system->getSavefileManager()->exists(name)) {
 			g_system->displayMessageOnOSD(Common::U32String("No quick save yet"));
