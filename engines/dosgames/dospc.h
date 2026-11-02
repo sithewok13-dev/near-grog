@@ -137,7 +137,7 @@ private:
 	byte _rgb[256 * 3];
 	bool _paletteDirty;
 	uint8 _dacWrite, _dacRead, _dacComp;
-	uint32 _retrace;
+	uint32 _instructions; // run since the start, for the video timing
 
 	// Keyboard: BIOS buffer of (scan << 8 | ascii) and the port 60 latch
 	Common::Array<uint16> _keys;

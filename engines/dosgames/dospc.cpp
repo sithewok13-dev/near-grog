@@ -34,7 +34,9 @@ enum {
 	kMemTop = 0xA000,
 	kBda = 0x400,
 	kFrameMs = 20,
-	kPitHz = 1193182
+	kPitHz = 1193182,
+	kRefreshInstructions = DosPC::kInstructionsPerFrame * 50 / 70,
+	kLineInstructions = kRefreshInstructions / 449
 };
 
 // Errors DOS returns in AX with carry set
@@ -51,7 +53,7 @@ static const byte kEgaColours[16 * 3] = {
 
 DosPC::DosPC(DosHost *host) : _host(host), _cpu(this), _nextProgram(0), _currentPsp(0),
 		_returnCode(0), _finished(false), _foundPos(0), _videoMode(3), _paletteDirty(true),
-		_dacWrite(0), _dacRead(0), _dacComp(0), _retrace(0), _port60(0), _picMask(0), _picInService(0),
+		_dacWrite(0), _dacRead(0), _dacComp(0), _instructions(0), _port60(0), _picMask(0), _picInService(0),
 		_mouseX(320), _mouseY(100), _mouseButtons(0), _mouseMinX(0), _mouseMaxX(639),
 		_mouseMinY(0), _mouseMaxY(199), _mouseCursor(-1), _pitDivisor(65536), _pitLatchLow(0),
 		_pitLowNext(true), _tickAccum(0), _oplReg(0), _oplTimerCtl(0), _waitingForKey(false),
@@ -178,10 +180,15 @@ uint8 DosPC::in8(uint16 port) {
 		}
 		return v;
 	}
-	case 0x3DA:
-		// Vertical retrace for a slice of each 70 Hz refresh
-		_retrace++;
-		return ((_retrace % 64) < 6) ? 0x09 : 0x00;
+	case 0x3DA: {
+		// A 70 Hz refresh timed by instructions run: vertical retrace (bits 3
+		// and 0) for its first part, then lines with a short horizontal
+		// blank (bit 0) each
+		uint32 pos = _instructions % kRefreshInstructions;
+		if (pos < kRefreshInstructions / 20)
+			return 0x09;
+		return (pos % kLineInstructions) < kLineInstructions / 5 ? 0x01 : 0x00;
+	}
 	default:
 		return 0xFF;
 	}
@@ -569,8 +576,10 @@ void DosPC::keyUp(uint8 scan) {
 }
 
 void DosPC::mouseMove(int x, int y) {
-	_mouseX = CLIP(x, _mouseMinX, _mouseMaxX);
-	_mouseY = CLIP(y / 2, _mouseMinY, _mouseMaxY);
+	// The screen spread over the range the game set (by default 640 x 200,
+	// what the driver reports in mode 13h)
+	_mouseX = CLIP(_mouseMinX + x * (_mouseMaxX - _mouseMinX + 1) / kScreenW, _mouseMinX, _mouseMaxX);
+	_mouseY = CLIP(_mouseMinY + y * (_mouseMaxY - _mouseMinY + 1) / kScreenH, _mouseMinY, _mouseMaxY);
 }
 
 void DosPC::mouseButton(int button, bool down) {
@@ -587,6 +596,7 @@ void DosPC::mouseButton(int button, bool down) {
 
 void DosPC::int33() {
 	uint16 ax = _cpu.r[Cpu8086::kAX];
+	debug(2, "DosPC: INT 33 AX=%04X BX=%04X CX=%04X DX=%04X", ax, _cpu.r[Cpu8086::kBX], _cpu.r[Cpu8086::kCX], _cpu.r[Cpu8086::kDX]);
 	switch (ax) {
 	case 0x00:
 	case 0x21:
@@ -1356,6 +1366,7 @@ bool DosPC::runFrame() {
 	_waitingForKey = false;
 	for (int i = 0; i < kInstructionsPerFrame && !_finished; i++) {
 		_cpu.step();
+		_instructions++;
 		if (i == nextTick && ticks > 0) {
 			pending++;
 			ticks--;
@@ -1424,7 +1435,7 @@ void DosPC::render(byte *dst, int pitch) {
 
 void DosPC::saveState(Common::WriteStream &s) {
 	s.writeUint32BE(MKTAG('D', 'O', 'S', 'P'));
-	s.writeUint32LE(1);
+	s.writeUint32LE(2);
 	s.write(_mem, 0x100000);
 	for (int i = 0; i < 8; i++)
 		s.writeUint16LE(_cpu.r[i]);
@@ -1459,10 +1470,20 @@ void DosPC::saveState(Common::WriteStream &s) {
 			s.write(f.data.data(), f.data.size());
 	}
 	s.writeSint32LE(_mouseCursor);
+	// Version 2
+	s.writeSint16LE(_mouseX);
+	s.writeSint16LE(_mouseY);
+	s.writeSint16LE(_mouseMinX);
+	s.writeSint16LE(_mouseMaxX);
+	s.writeSint16LE(_mouseMinY);
+	s.writeSint16LE(_mouseMaxY);
 }
 
 bool DosPC::loadState(Common::ReadStream &s) {
-	if (s.readUint32BE() != MKTAG('D', 'O', 'S', 'P') || s.readUint32LE() != 1)
+	if (s.readUint32BE() != MKTAG('D', 'O', 'S', 'P'))
+		return false;
+	uint32 version = s.readUint32LE();
+	if (version < 1 || version > 2)
 		return false;
 	s.read(_mem, 0x100000);
 	for (int i = 0; i < 8; i++)
@@ -1501,6 +1522,14 @@ bool DosPC::loadState(Common::ReadStream &s) {
 			s.read(f.data.data(), f.data.size());
 	}
 	_mouseCursor = s.readSint32LE();
+	if (version >= 2) {
+		_mouseX = s.readSint16LE();
+		_mouseY = s.readSint16LE();
+		_mouseMinX = s.readSint16LE();
+		_mouseMaxX = s.readSint16LE();
+		_mouseMinY = s.readSint16LE();
+		_mouseMaxY = s.readSint16LE();
+	}
 	_keys.clear();
 	_scanQueue.clear();
 	_finished = false;
