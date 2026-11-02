@@ -337,6 +337,24 @@ const char *GrimEngine::getUpdateFilename() {
 }
 
 Common::Error GrimEngine::run() {
+	// Near-Grog: subtitles on by default, once per game (a later choice in
+	// the game's or ScummVM's options is kept)
+	if (!ConfMan.hasKey("neargrog_subtitles_on", _targetName)) {
+		// Grim Fandango's registry read the setting when it was made (and may
+		// write its own back when deleted): remake it after the change
+		const bool remake = g_registry != nullptr;
+		if (remake) {
+			delete g_registry;
+			g_registry = nullptr;
+		}
+		ConfMan.setBool("subtitles", true, _targetName);
+		ConfMan.setBool("speech_mute", false, _targetName);
+		ConfMan.setBool("neargrog_subtitles_on", true, _targetName);
+		ConfMan.flushToDisk();
+		if (remake)
+			g_registry = new Registry();
+	}
+
 	// Try to see if we have the EMI Mac installer present
 	// Currently, this requires the data fork to be standalone
 	if (getGameType() == GType_MONKEY4) {

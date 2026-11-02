@@ -702,6 +702,9 @@ bool iOS7_fetchEvent(InternalEvent *event) {
 }
 
 - (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+	// Near-Grog: the touch map (a ring where each finger lands)
+	for (UITouch *t in touches)
+		iOS7_showTouchDot([t locationInView:self]);
 #if TARGET_OS_IOS
 	UITouch *touch = [touches anyObject];
 	touchesBegan = [touch locationInView:self];

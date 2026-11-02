@@ -41,16 +41,6 @@
 #define NG_STICK_ZONE 0.42
 #define NG_STICK_RADIUS 60.0
 #define NG_STICK_DEADZONE 0.30    // JK's
-// Jedi Knight's run marker (iosTouch.m IOSTOUCH_RUN_*): a small circle with
-// two chevrons, this far above the stick, joined to its ring by a line; a
-// thumb pushed past the ring towards it runs
-#define NG_RUN_MARKER_UP 100.0
-#define NG_RUN_MARKER_MIN_UP 76.0
-#define NG_RUN_MARKER_RADIUS 15.0
-#define NG_RUN_ON 70.0
-#define NG_RUN_OFF 60.0
-#define NG_RUN_CONE 30.0
-#define NG_RUN_CONE_OFF 40.0
 #define NG_STICK_RUN 0.9         // pushed this far out (of the radius), any way: running
 #define NG_IDLE_ALPHA 0.65
 #define NG_TOUCH_SLOP 6.0
@@ -138,12 +128,7 @@ static void sendEvent(const InternalEvent &e) {
 	int _stickX, _stickY;      // last set, JOYAXIS units
 	bool _padDown[4];          // D-pad up, down, left, right held by the stick
 	bool _runFromStick;
-	CAShapeLayer *_stickBase, *_stickKnob, *_runMarker, *_runChevrons, *_runLink;
-	bool _hasMarker;          // there was room for the run marker this time
-	CGPoint _markerPos;
-	double _markerDeg;        // its direction from the stick (90: straight up)
-	bool _markerRunning;      // the thumb is on it
-	int _runLit;              // what it shows (-1: not yet)
+	CAShapeLayer *_stickBase, *_stickKnob;
 	CADisplayLink *_tick;
 	bool _visible;
 }
@@ -192,19 +177,7 @@ static void sendEvent(const InternalEvent &e) {
 	_stickBase.lineWidth = 2;
 	_stickKnob = [CAShapeLayer layer];
 	_stickKnob.fillColor = [UIColor colorWithWhite:1 alpha:0.5].CGColor;
-	_runLink = [CAShapeLayer layer];
-	_runLink.lineWidth = 1.5;
-	_runLink.lineCap = kCALineCapRound;
-	_runLink.fillColor = [UIColor clearColor].CGColor;
-	_runMarker = [CAShapeLayer layer];
-	_runMarker.lineWidth = 1.5;
-	_runChevrons = [CAShapeLayer layer];
-	_runChevrons.lineWidth = 2.0;
-	_runChevrons.lineCap = kCALineCapRound;
-	_runChevrons.lineJoin = kCALineJoinRound;
-	_runChevrons.fillColor = [UIColor clearColor].CGColor;
-	_runLit = -1;
-	for (CALayer *l in @[_stickBase, _runLink, _runMarker, _runChevrons, _stickKnob]) {
+	for (CALayer *l in @[_stickBase, _stickKnob]) {
 		l.hidden = YES;
 		[self.layer addSublayer:l];
 	}
@@ -378,36 +351,9 @@ static void sendEvent(const InternalEvent &e) {
 	}
 }
 
-// Jedi Knight's run marker look: idle (dark, "^^") or lit blue while running
-- (void)setRunLit:(bool)lit {
-	if (_runLit == (int)lit)
-		return;
-	_runLit = lit;
-	_runMarker.fillColor = lit ? [UIColor colorWithRed:0.47 green:0.78 blue:1.0 alpha:0.55].CGColor : [UIColor colorWithWhite:0 alpha:0.35].CGColor;
-	_runMarker.strokeColor = [UIColor colorWithWhite:1 alpha:(lit ? 0.85 : 0.45)].CGColor;
-	_runMarker.opacity = _runChevrons.opacity = lit ? 1.0 : NG_IDLE_ALPHA;
-	_runChevrons.strokeColor = [UIColor colorWithWhite:1 alpha:(lit ? 1.0 : 0.85)].CGColor;
-	_runLink.strokeColor = lit ? [UIColor colorWithRed:0.47 green:0.78 blue:1.0 alpha:0.95].CGColor : [UIColor colorWithWhite:1 alpha:0.45].CGColor;
-	_runLink.opacity = lit ? 1.0 : NG_IDLE_ALPHA;
-	_stickKnob.fillColor = [UIColor colorWithWhite:1 alpha:(lit ? 0.9 : 0.5)].CGColor;
-}
-
-// JK's iosTouch_StickOnRunMarker: pushed past the ring towards the marker
-- (bool)onRunMarker:(CGPoint)p {
-	if (!_hasMarker)
-		return false;
-	const double dx = p.x - _stickOrigin.x, dy = _stickOrigin.y - p.y;
-	const double d = hypot(dx, dy);
-	if (d < (_markerRunning ? NG_RUN_OFF : NG_RUN_ON))
-		return false;
-	double off = fabs(atan2(dy, dx) * 180.0 / M_PI - _markerDeg);
-	if (off > 180.0)
-		off = 360.0 - off;
-	return off <= (_markerRunning ? NG_RUN_CONE_OFF : NG_RUN_CONE);
-}
-
+// Running: the stick pushed right out, any way (the owner found a run
+// marker above it distracting, 2026-11-02)
 - (void)moveStickTo:(CGPoint)p {
-	_markerRunning = [self onRunMarker:p];
 	double dx = p.x - _stickOrigin.x, dy = p.y - _stickOrigin.y;
 	const double mag = hypot(dx, dy) / NG_STICK_RADIUS;
 	int x = 0, y = 0;
@@ -418,63 +364,19 @@ static void sendEvent(const InternalEvent &e) {
 		x = (int)(CLIP(dx / full, -1.0, 1.0) * Common::JOYAXIS_MAX);
 		y = (int)(CLIP(dy / full, -1.0, 1.0) * Common::JOYAXIS_MAX);
 	}
-	// Running: on the marker, or the stick pushed right out in any direction
-	const bool run = _markerRunning || mag >= NG_STICK_RUN;
+	const bool run = mag >= NG_STICK_RUN;
 	[self setStickX:x y:y run:run];
 
-	// The knob follows the thumb, up to the ring -- or sits on the marker
+	// The knob follows the thumb, up to the ring, and lights up while running
 	if (mag > 1.0) {
 		dx /= mag;
 		dy /= mag;
 	}
-	const CGPoint k = _markerRunning ? _markerPos : CGPointMake(_stickOrigin.x + dx, _stickOrigin.y + dy);
 	[CATransaction begin];
 	[CATransaction setDisableActions:YES];
-	_stickKnob.path = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(k.x - 24, k.y - 24, 48, 48)].CGPath;
-	[self setRunLit:run];
+	_stickKnob.path = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(_stickOrigin.x + dx - 24, _stickOrigin.y + dy - 24, 48, 48)].CGPath;
+	_stickKnob.fillColor = run ? [UIColor colorWithRed:0.47 green:0.78 blue:1.0 alpha:0.85].CGColor : [UIColor colorWithWhite:1 alpha:0.5].CGColor;
 	[CATransaction commit];
-}
-
-// JK's placeRunMarker: 100 pt straight above the stick or, where the top of
-// the screen or a button is in the way, as near that as fits (no nearer
-// than 76 pt, else no marker this time)
-- (void)placeRunMarker {
-	const CGPoint o = _stickOrigin;
-	const CGFloat R = NG_RUN_MARKER_RADIUS;
-	const CGFloat minY = MAX(self.safeAreaInsets.top, 0.0) + 4.0 + R;
-	_hasMarker = false;
-	_markerRunning = false;
-	for (CGFloat h = NG_RUN_MARKER_UP; h >= NG_RUN_MARKER_MIN_UP; h -= 2.0) {
-		const CGPoint c = CGPointMake(o.x, o.y - h);
-		if (c.y < minY)
-			continue;
-		bool clear = true;
-		for (int i = 0; i < kBtnCount && clear; i++)
-			if ([self shows:i])
-				clear = hypot(c.x - _buttons[i].x, c.y - _buttons[i].y) >= _buttons[i].radius + R + 4.0;
-		if (!clear)
-			continue;
-		_hasMarker = true;
-		_markerPos = c;
-		_markerDeg = 90.0;
-		break;
-	}
-	if (!_hasMarker)
-		return;
-	const CGPoint c = _markerPos;
-	_runMarker.path = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(c.x - R, c.y - R, R * 2, R * 2)].CGPath;
-	UIBezierPath *chev = [UIBezierPath bezierPath];
-	for (int i = 0; i < 2; i++) {
-		const CGFloat tip = c.y - 5.5 + 5.5 * i; // two chevrons, 12 pt wide, 5.5 pt apart
-		[chev moveToPoint:CGPointMake(c.x - 6.0, tip + 5.0)];
-		[chev addLineToPoint:CGPointMake(c.x, tip)];
-		[chev addLineToPoint:CGPointMake(c.x + 6.0, tip + 5.0)];
-	}
-	_runChevrons.path = chev.CGPath;
-	UIBezierPath *link = [UIBezierPath bezierPath];
-	[link moveToPoint:CGPointMake(o.x, o.y - NG_STICK_RADIUS)];
-	[link addLineToPoint:CGPointMake(o.x, c.y + R)];
-	_runLink.path = link.CGPath;
 }
 
 - (void)showStick:(bool)show {
@@ -483,13 +385,8 @@ static void sendEvent(const InternalEvent &e) {
 	if (show) {
 		const CGPoint o = _stickOrigin;
 		_stickBase.path = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(o.x - NG_STICK_RADIUS, o.y - NG_STICK_RADIUS, NG_STICK_RADIUS * 2, NG_STICK_RADIUS * 2)].CGPath;
-		[self placeRunMarker];
-		_runLit = -1;
-		[self setRunLit:false];
 	}
 	_stickBase.hidden = _stickKnob.hidden = !show;
-	_runMarker.hidden = _runChevrons.hidden = !show || !_hasMarker;
-	_runLink.hidden = !show || !_hasMarker || _markerPos.y + NG_RUN_MARKER_RADIUS >= _stickOrigin.y - NG_STICK_RADIUS - 1;
 	[CATransaction commit];
 }
 
@@ -499,6 +396,7 @@ static void sendEvent(const InternalEvent &e) {
 		if (!s)
 			continue;
 		const CGPoint p = [t locationInView:self];
+		iOS7_showTouchDot([t locationInView:[iOS7AppDelegate iPhoneView]]);
 		s->touch = t;
 		s->start = p;
 		s->tStart = nowSeconds();
@@ -680,6 +578,31 @@ static void sendEvent(const InternalEvent &e) {
 
 @end
 
+void iOS7_showTouchDot(CGPoint p) {
+	iPhoneView *view = [iOS7AppDelegate iPhoneView];
+	if (!view)
+		return;
+	CAShapeLayer *dot = [CAShapeLayer layer];
+	dot.path = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(p.x - 14, p.y - 14, 28, 28)].CGPath;
+	dot.fillColor = [UIColor colorWithRed:1 green:0 blue:0 alpha:0.25].CGColor;
+	dot.strokeColor = [UIColor redColor].CGColor;
+	dot.lineWidth = 2.5;
+	dot.zPosition = 1000;
+	[view.layer addSublayer:dot];
+	[CATransaction begin];
+	[CATransaction setCompletionBlock:^{
+		[dot removeFromSuperlayer];
+	}];
+	CABasicAnimation *fade = [CABasicAnimation animationWithKeyPath:@"opacity"];
+	fade.fromValue = @1.0;
+	fade.toValue = @0.0;
+	fade.duration = 1.0;
+	fade.fillMode = kCAFillModeForwards;
+	fade.removedOnCompletion = NO;
+	[dot addAnimation:fade forKey:@"fade"];
+	[CATransaction commit];
+}
+
 static void refreshOnMain() {
 	dispatch_async(dispatch_get_main_queue(), ^{
 		iPhoneView *view = [iOS7AppDelegate iPhoneView];
@@ -714,5 +637,6 @@ void iOS7_setNearGrogGuiShown(bool shown) {
 
 void iOS7_setNearGrogTouchMode(int mode) {}
 void iOS7_setNearGrogGuiShown(bool shown) {}
+void iOS7_showTouchDot(CGPoint p) {}
 
 #endif
