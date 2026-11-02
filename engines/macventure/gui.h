@@ -90,7 +90,10 @@ struct DraggedObj {
 	bool hasMoved;
 };
 
+class ModernUI; // Near-Grog
+
 class Gui {
+	friend class ModernUI; // Near-Grog
 
 public:
 	Gui(MacVentureEngine *engine, Common::MacResManager *resman);
@@ -105,8 +108,16 @@ public:
 
 	void loadDiploma();
 
+	// Near-Grog: the phone layouts
+	void setModern(bool active, int w = 0, int h = 0, bool portrait = false, int layout = 0, int look = 0, int opacity = 100,
+		const Graphics::PixelFormat *format = nullptr);
+	bool isModern() const { return _modernActive; }
+	ModernUI *getModern() { return _modern; }
+	Graphics::ManagedSurface &getScreen() { return _screen; }
+
 	void clearControls();
 	bool processEvent(Common::Event &event);
+	bool processHiddenEvent(Common::Event &event); // Near-Grog
 	void handleMenuAction(MenuAction action);
 	void updateWindow(WindowReference winID, bool containerOpen);
 	void invertWindowColors(WindowReference winID);
@@ -198,6 +209,8 @@ private: // Attributes
 	Common::MacResManager *_resourceManager;
 
 	Graphics::ManagedSurface _screen;
+	ModernUI *_modern; // Near-Grog
+	bool _modernActive;
 	Graphics::MacWindowManager *_wm;
 
 	WindowReference _activeWinRef;

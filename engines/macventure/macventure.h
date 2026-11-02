@@ -245,6 +245,11 @@ public:
 	void loadDataBundle();
 	Common::SeekableReadStream *getBorderFile(MVWindowType windowType, bool isActive);
 
+	// Near-Grog: the phone layouts (modernui.cpp) and the Near-Grog tray
+	void applyLayout();
+	void openMainMenuDialog() override;
+	Gui *getGui() { return _gui; }
+
 	void requestQuit();
 	void requestUnpause();
 	void selectControl(ControlAction action);

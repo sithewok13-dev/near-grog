@@ -203,6 +203,11 @@ void Dialog::draw() {
 		(*it)->draw(this, compose);
 	}
 
+	// Near-Grog: a modern layout shows it from the hidden screen
+	if (_gui->isModern()) {
+		_gui->getScreen().blitFrom(compose, Common::Point(_bounds.left, _bounds.top));
+		return;
+	}
 	g_system->copyRectToScreen(compose.getPixels(), compose.pitch,
 		_bounds.left, _bounds.top, _bounds.width(), _bounds.height());
 	}
