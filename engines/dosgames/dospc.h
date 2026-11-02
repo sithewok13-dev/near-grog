@@ -189,6 +189,8 @@ private:
 	bool findNext();
 	static bool wildcardMatch(const Common::String &pattern, const Common::String &name);
 
+	bool isText() const { return _videoMode <= 3 || _videoMode == 7; }
+	int textCols() const { return _videoMode <= 1 ? 40 : 80; }
 	bool raiseIrq(int irq);
 	void scrollText(int top, int bottom, int lines, uint8 attr);
 	void putChar(uint8 c, uint8 attr, bool advance);

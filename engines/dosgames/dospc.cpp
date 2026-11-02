@@ -333,29 +333,31 @@ void DosPC::int1a() {
 // Text mode output through the BIOS
 void DosPC::scrollText(int top, int bottom, int lines, uint8 attr) {
 	byte *vram = &_mem[0xB8000];
+	int cols = textCols();
 	if (lines == 0 || lines > bottom - top) {
 		for (int r = top; r <= bottom; r++)
-			for (int c = 0; c < 80; c++) {
-				vram[(r * 80 + c) * 2] = ' ';
-				vram[(r * 80 + c) * 2 + 1] = attr;
+			for (int c = 0; c < cols; c++) {
+				vram[(r * cols + c) * 2] = ' ';
+				vram[(r * cols + c) * 2 + 1] = attr;
 			}
 		return;
 	}
 	for (int r = top; r <= bottom - lines; r++)
-		memcpy(&vram[r * 160], &vram[(r + lines) * 160], 160);
+		memcpy(&vram[r * cols * 2], &vram[(r + lines) * cols * 2], cols * 2);
 	for (int r = bottom - lines + 1; r <= bottom; r++)
-		for (int c = 0; c < 80; c++) {
-			vram[(r * 80 + c) * 2] = ' ';
-			vram[(r * 80 + c) * 2 + 1] = attr;
+		for (int c = 0; c < cols; c++) {
+			vram[(r * cols + c) * 2] = ' ';
+			vram[(r * cols + c) * 2 + 1] = attr;
 		}
 }
 
 void DosPC::putChar(uint8 c, uint8 attr, bool advance) {
 	uint8 &col = _mem[kBda + 0x50], &row = _mem[kBda + 0x51];
+	int cols = textCols();
 	if (!advance) {
-		if (_videoMode == 3) {
-			_mem[0xB8000 + (row * 80 + col) * 2] = c;
-			_mem[0xB8000 + (row * 80 + col) * 2 + 1] = attr;
+		if (isText()) {
+			_mem[0xB8000 + (row * cols + col) * 2] = c;
+			_mem[0xB8000 + (row * cols + col) * 2 + 1] = attr;
 		}
 		return;
 	}
@@ -373,19 +375,19 @@ void DosPC::putChar(uint8 c, uint8 attr, bool advance) {
 		col = 0;
 		return;
 	default:
-		if (_videoMode == 3) {
-			_mem[0xB8000 + (row * 80 + col) * 2] = c;
+		if (isText()) {
+			_mem[0xB8000 + (row * cols + col) * 2] = c;
 			if (attr)
-				_mem[0xB8000 + (row * 80 + col) * 2 + 1] = attr;
+				_mem[0xB8000 + (row * cols + col) * 2 + 1] = attr;
 		}
-		if (++col >= 80) {
+		if (++col >= cols) {
 			col = 0;
 			row++;
 		}
 		break;
 	}
 	if (row >= 25) {
-		if (_videoMode == 3)
+		if (isText())
 			scrollText(0, 24, 1, 7);
 		row = 24;
 	}
@@ -397,6 +399,7 @@ void DosPC::int10() {
 	case 0x00:
 		_videoMode = al & 0x7F;
 		_mem[kBda + 0x49] = _videoMode;
+		WRITE_LE_UINT16(&_mem[kBda + 0x4A], textCols());
 		_mem[kBda + 0x50] = _mem[kBda + 0x51] = 0;
 		memcpy(_dac, kEgaColours, sizeof(kEgaColours));
 		if (_videoMode == 0x13) {
@@ -413,7 +416,7 @@ void DosPC::int10() {
 	case 0x01:
 		break;
 	case 0x02:
-		_mem[kBda + 0x50] = _cpu.rb(2) % 80; // DL
+		_mem[kBda + 0x50] = _cpu.rb(2) % textCols(); // DL
 		_mem[kBda + 0x51] = _cpu.rb(6) % 25; // DH
 		break;
 	case 0x03:
@@ -425,11 +428,11 @@ void DosPC::int10() {
 		break;
 	case 0x06:
 	case 0x07:
-		if (_videoMode == 3)
+		if (isText())
 			scrollText(_cpu.rb(5), MIN<int>(_cpu.rb(6), 24), al, _cpu.rb(7));
 		break;
 	case 0x08: {
-		int pos = (_mem[kBda + 0x51] * 80 + _mem[kBda + 0x50]) * 2;
+		int pos = (_mem[kBda + 0x51] * textCols() + _mem[kBda + 0x50]) * 2;
 		_cpu.r[Cpu8086::kAX] = _mem[0xB8000 + pos] | (_mem[0xB8000 + pos + 1] << 8);
 		break;
 	}
@@ -437,9 +440,9 @@ void DosPC::int10() {
 	case 0x0A: {
 		int count = _cpu.r[Cpu8086::kCX];
 		uint8 col = _mem[kBda + 0x50];
-		for (int i = 0; i < count && col + i < 80; i++) {
+		for (int i = 0; i < count && col + i < textCols(); i++) {
 			_mem[kBda + 0x50] = col + i;
-			putChar(al, ah == 0x09 ? _cpu.rb(3) : _mem[0xB8000 + (_mem[kBda + 0x51] * 80 + col + i) * 2 + 1], false);
+			putChar(al, ah == 0x09 ? _cpu.rb(3) : _mem[0xB8000 + (_mem[kBda + 0x51] * textCols() + col + i) * 2 + 1], false);
 		}
 		_mem[kBda + 0x50] = col;
 		break;
@@ -457,7 +460,7 @@ void DosPC::int10() {
 		break;
 	case 0x0F:
 		_cpu.wb(0, _videoMode);
-		_cpu.wb(4, _videoMode == 0x13 ? 40 : 80);
+		_cpu.wb(4, _videoMode == 0x13 ? 40 : textCols());
 		_cpu.wb(7, 0);
 		break;
 	case 0x10:
@@ -866,6 +869,14 @@ bool DosPC::exec(const Common::String &path, const Common::String &args, bool fr
 			warning("DosPC: not enough memory for %s", name.c_str());
 			return false;
 		}
+		// DOS gives the program no more than its header's maximum asks for
+		uint16 maxAlloc = READ_LE_UINT16(&image[12]);
+		uint32 wanted = (size + 15) / 16 + maxAlloc + 0x10;
+		if (wanted < blockParas) {
+			resize(psp, wanted, &largest);
+			blockParas = wanted;
+			WRITE_LE_UINT16(&_mem[p + 2], psp + blockParas);
+		}
 		memcpy(&_mem[load << 4], &image[header], size);
 		uint16 relocTable = READ_LE_UINT16(&image[0x18]);
 		for (uint i = 0; i < relocs; i++) {
@@ -1000,6 +1011,7 @@ void DosPC::int21() {
 		setStackedFlag(Cpu8086::kCF, true);
 	};
 	auto ok = [&]() { setStackedFlag(Cpu8086::kCF, false); };
+	debug(2, "DosPC: INT 21 AX=%04X BX=%04X CX=%04X DX=%04X from %04X:%04X", ax, bx, cx, dx, _cpu.mem16(_cpu.seg[Cpu8086::kSS], _cpu.r[Cpu8086::kSP] + 2), _cpu.mem16(_cpu.seg[Cpu8086::kSS], _cpu.r[Cpu8086::kSP]));
 
 	switch (ah) {
 	case 0x00:
@@ -1076,6 +1088,10 @@ void DosPC::int21() {
 		cx = 1990;
 		dx = 0x0101;
 		_cpu.wb(0, 1);
+		break;
+	case 0x2B:
+	case 0x2D:
+		_cpu.wb(0, 0); // setting the date or time: accepted, and ignored
 		break;
 	case 0x2C: {
 		uint32 hs = _frame * kFrameMs / 10;
@@ -1369,17 +1385,19 @@ void DosPC::render(byte *dst, int pitch) {
 			memcpy(o + pitch, o, kScreenW);
 		}
 	} else {
-		// Text: 80x25 from the font the engine supplied at memory F000:A000
+		// Text: 80x25 (or 40x25, doubled) from the font the engine supplied
+		// at memory F000:A000
 		const byte *vram = &_mem[0xB8000];
 		const byte *font = &_mem[0xFA000];
+		int cols = textCols(), scale = 80 / cols;
 		for (int row = 0; row < 25; row++) {
-			for (int col = 0; col < 80; col++) {
-				byte ch = vram[(row * 80 + col) * 2], attr = vram[(row * 80 + col) * 2 + 1];
+			for (int col = 0; col < cols; col++) {
+				byte ch = vram[(row * cols + col) * 2], attr = vram[(row * cols + col) * 2 + 1];
 				for (int y = 0; y < 16; y++) {
 					byte bits = font[ch * 8 + y / 2];
-					byte *o = dst + (row * 16 + y) * pitch + col * 8;
-					for (int x = 0; x < 8; x++)
-						o[x] = (bits & (0x80 >> x)) ? (attr & 15) : (attr >> 4) & 7;
+					byte *o = dst + (row * 16 + y) * pitch + col * 8 * scale;
+					for (int x = 0; x < 8 * scale; x++)
+						o[x] = (bits & (0x80 >> (x / scale))) ? (attr & 15) : (attr >> 4) & 7;
 				}
 			}
 		}
