@@ -39,7 +39,11 @@ namespace MacVenture {
 SoundManager::SoundManager(MacVentureEngine *engine, Audio::Mixer *mixer) {
 	_container = nullptr;
 	Common::Path filename = engine->getFilePath(kSoundPathID);
-	_container = new Container(filename);
+	// Near-Grog: the Windows versions have no sound container (yet)
+	if (Common::File::exists(filename))
+		_container = new Container(filename);
+	else
+		warning("SoundManager: No sound file '%s', sounds are off", filename.toString().c_str());
 	_mixer = mixer;
 	debugC(1, kMVDebugSound, "Created sound manager with file %s", filename.toString().c_str());
 }
@@ -56,6 +60,8 @@ SoundManager::~SoundManager() {
 }
 
 uint32 SoundManager::playSound(ObjID sound) {
+	if (!_container) // Near-Grog
+		return 0;
 	ensureLoaded(sound);
 	_assets[sound]->play(_mixer, &_handle);
 	return _assets[sound]->getPlayLength();

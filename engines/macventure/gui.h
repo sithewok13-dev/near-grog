@@ -250,6 +250,7 @@ private: // Methods
 
 	// Initializers
 	void initGUI();
+	void initWindowsPalette(); // Near-Grog
 	void initWindows();
 	void assignObjReferences(); // Mainly guesswork
 

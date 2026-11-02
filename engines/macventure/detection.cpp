@@ -30,6 +30,8 @@ namespace MacVenture {
 
 #define MACGAME(n, v, f, md5, s) {n, v, AD_ENTRY1s(f, md5, s), Common::EN_ANY, Common::kPlatformMacintosh, ADGF_DEFAULT|ADGF_TESTING, GUIO1(GUIO_NOMIDI)}
 #define MACDEMO(n, v, f, md5, s) {n, v, AD_ENTRY1s(f, md5, s), Common::EN_ANY, Common::kPlatformMacintosh, ADGF_DEFAULT|ADGF_TESTING|ADGF_DEMO, GUIO1(GUIO_NOMIDI)}
+// Near-Grog: Windows 3.1 versions (1993): the program plus the tagged data files
+#define WINGAME(n, f, md5, s, gmd5, gs) {n, "", AD_ENTRY2s(f, md5, s, "GAMEFILE.DAT", gmd5, gs), Common::EN_ANY, Common::kPlatformWindows, ADGF_DROPLANGUAGE|ADGF_DROPPLATFORM|ADGF_TESTING, GUIO1(GUIO_NOMIDI)}
 #define IIGSGAME(n, v, f, md5, s) {n, v, AD_ENTRY1s(f, md5, s), Common::EN_ANY, Common::kPlatformApple2GS, ADGF_DEFAULT|ADGF_UNSTABLE, GUIO1(GUIO_NOMIDI)}
 
 static const ADGameDescription gameDescriptions[] = {
@@ -52,10 +54,26 @@ static const ADGameDescription gameDescriptions[] = {
 	IIGSGAME("deja_vu2", "", "DEJAVUII", "d:f6ef6ead871d4d1cc0f6cf840f48b63f", 69047),
 	IIGSGAME("uninvited", "", "UNINVITED", "d:45924ea00ea4ef088e00db0ee774b8df", 101376),
 
+	// Windows 3.1 releases (Near-Grog)
+	WINGAME("shadowgate", "SHADOW.EXE", "c122e1b5f4285b1cd14e3993166b9460", 458240, "94afc4ea363711b169ec9935ba5c756e", 8154),
+	WINGAME("uninvited", "UNINV.EXE", "b79dff2b3c9e1b687b109f2e46548399", 476672, "c6749158e44bd2bf30fc7bc745795911", 9016),
+	WINGAME("deja_vu", "DEJAVU.EXE", "3839f82aca8e103d00b64bc1d68ef025", 305664, "bf075292d14470c1a4699cc5c445c2db", 7808),
+	WINGAME("deja_vu2", "DEJAVU2.EXE", "e80c49ef63f531adb3ed0f9024b8ac9d", 653312, "1bfb720561cba3f0197b1b8b93de98fa", 18028),
+
 	// Misc
 	MACDEMO("uninvited", "Demo", "Uninvited Demo", "e53adca77d773dca926f61faac68df86", 53119),
 	AD_TABLE_END_MARKER
 };
+
+// Near-Grog: other copies of the Windows versions, found by the tag of GAMEFILE.DAT
+static const ADGameDescription windowsFallbackDescriptions[] = {
+	{"shadowgate", "", AD_ENTRY1("SHADOW.EXE", nullptr), Common::EN_ANY, Common::kPlatformWindows, ADGF_DROPLANGUAGE|ADGF_DROPPLATFORM|ADGF_TESTING, GUIO1(GUIO_NOMIDI)},
+	{"uninvited", "", AD_ENTRY1("UNINV.EXE", nullptr), Common::EN_ANY, Common::kPlatformWindows, ADGF_DROPLANGUAGE|ADGF_DROPPLATFORM|ADGF_TESTING, GUIO1(GUIO_NOMIDI)},
+	{"deja_vu", "", AD_ENTRY1("DEJAVU.EXE", nullptr), Common::EN_ANY, Common::kPlatformWindows, ADGF_DROPLANGUAGE|ADGF_DROPPLATFORM|ADGF_TESTING, GUIO1(GUIO_NOMIDI)},
+	{"deja_vu2", "", AD_ENTRY1("DEJAVU2.EXE", nullptr), Common::EN_ANY, Common::kPlatformWindows, ADGF_DROPLANGUAGE|ADGF_DROPPLATFORM|ADGF_TESTING, GUIO1(GUIO_NOMIDI)}
+};
+
+static const char *const windowsTags[] = { "SHG1", "UNV1", "DVU1", "DVU2" };
 
 } // End of namespace MacVenture
 
@@ -100,6 +118,28 @@ public:
 
 	const DebugChannelDef *getDebugChannels() const override {
 		return debugFlagList;
+	}
+
+	// Near-Grog: Windows versions not in the table
+	ADDetectedGame fallbackDetect(const FileMap &allFiles, const Common::FSList &fslist, ADDetectedGameExtraInfo **extra) const override {
+		if (!allFiles.contains(Common::Path("GAMEFILE.DAT")))
+			return ADDetectedGame();
+
+		Common::SeekableReadStream *stream = allFiles[Common::Path("GAMEFILE.DAT")].createReadStream();
+		if (!stream)
+			return ADDetectedGame();
+		char tag[4];
+		bool read = stream->read(tag, 4) == 4;
+		delete stream;
+		if (!read)
+			return ADDetectedGame();
+
+		for (int i = 0; i < ARRAYSIZE(windowsTags); i++) {
+			const ADGameDescription &desc = windowsFallbackDescriptions[i];
+			if (!memcmp(tag, windowsTags[i], 4) && allFiles.contains(Common::Path(desc.filesDescriptions[0].fileName)))
+				return ADDetectedGame(&desc);
+		}
+		return ADDetectedGame();
 	}
 };
 

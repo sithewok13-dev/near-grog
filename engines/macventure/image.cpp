@@ -68,9 +68,24 @@ static const byte loadBits[] = {
 	0xff
 };
 
+// Near-Grog: Windows colour pictures
+static bool s_windowsFormat = false;
+static byte s_remap[256];
+static byte s_invert[256];
+
+void ImageAsset::setWindowsFormat(bool windows, const byte *remap, const byte *invert) {
+	s_windowsFormat = windows;
+	for (int i = 0; i < 256; i++) {
+		s_remap[i] = remap ? remap[i] : i;
+		s_invert[i] = invert ? invert[i] : i;
+	}
+}
+
 ImageAsset::ImageAsset(ObjID original, Container *container) {
 	_id = (original * 2);
 	_mask = (original * 2) + 1;
+	_decodedDepth = 0; // Near-Grog
+	_isColor = false;
 
 	uint imgRowBytes = 0;
 	uint imgBitWidth = 0;
@@ -84,16 +99,28 @@ ImageAsset::ImageAsset(ObjID original, Container *container) {
 	_imgRowBytes = imgRowBytes;
 	_imgBitWidth = imgBitWidth;
 	_imgBitHeight = imgBitHeight;
+	uint imgDepth = _decodedDepth; // Near-Grog
 
+	_decodedDepth = 0;
 	if (_container->getItemByteSize(_mask)) {
 		decodePPIC(_mask, _maskData, maskBitHeight, maskBitWidth, maskRowBytes);
 	}
 	_maskRowBytes = maskRowBytes;
 	_maskBitWidth = maskBitWidth;
 	_maskBitHeight = maskBitHeight;
+
+	// Near-Grog
+	if (imgDepth) {
+		uint maskDepth = _decodedDepth;
+		_decodedDepth = imgDepth;
+		convertToColor(maskDepth);
+	}
 }
 
 ImageAsset::ImageAsset(Common::SeekableReadStream *stream) {
+	_decodedDepth = 0; // Near-Grog
+	_isColor = false;
+	_container = nullptr;
 	uint imgRowBytes = 0;
 	uint imgBitWidth = 0;
 	uint imgBitHeight = 0;
@@ -109,6 +136,9 @@ ImageAsset::ImageAsset(Common::SeekableReadStream *stream) {
 	_maskRowBytes = maskRowBytes;
 	_maskBitWidth = maskBitWidth;
 	_maskBitHeight = maskBitHeight;
+
+	if (_decodedDepth) // Near-Grog
+		convertToColor(0);
 }
 
 ImageAsset::~ImageAsset() {
@@ -130,6 +160,14 @@ void ImageAsset::decodePPIC(Common::SeekableReadStream *baseStream, Common::Arra
 		w = stream.getBits<10>();
 	} else {
 		w = stream.getBits<6>();
+	}
+
+	// Near-Grog: Windows pictures give a depth (1 << depth bits a pixel); the
+	// picture is then decoded as before, as a bitmap that many times wider
+	_decodedDepth = 0;
+	if (s_windowsFormat) {
+		_decodedDepth = stream.getBits<2>();
+		w <<= _decodedDepth;
 	}
 
 	rowBytes = ((w + 0xF) >> 3) & 0xFFFE;
@@ -396,7 +434,89 @@ byte ImageAsset::walkHuff(const PPICHuff &huff, Common::BitStream8MSB &stream) {
 	return val;
 }
 
+// Near-Grog: turns the decoded Windows picture into one byte a pixel, and
+// builds a 1-bit mask (for drawing and for clicks) from the mask picture,
+// or, without a real one, from the picture's non-zero pixels.
+void ImageAsset::convertToColor(uint maskDepth) {
+	const uint depth = _decodedDepth;
+	const uint bpp = 1 << depth;
+	const uint w = _imgBitWidth >> depth;
+	const uint h = _imgBitHeight;
+	const uint pixMask = (1 << bpp) - 1;
+
+	Common::Array<byte> raw;
+	raw.resize(w * h);
+	for (uint y = 0; y < h; y++) {
+		for (uint x = 0; x < w; x++) {
+			uint bit = x * bpp;
+			byte b = _imgData[y * _imgRowBytes + (bit >> 3)];
+			raw[y * w + x] = (b >> (8 - bpp - (bit & 7))) & pixMask;
+		}
+	}
+
+	// The real masks are as big as the picture (or nearly); tiny ones (6x6) are not masks
+	const uint mbpp = 1 << maskDepth;
+	const uint mw = _maskBitWidth >> maskDepth;
+	const uint mh = _maskBitHeight;
+	const bool realMask = maskDepth && !_maskData.empty() && (mw > 8 || mh > 8);
+
+	Common::Array<byte> mask;
+	uint maskRowBytes = ((w + 0xF) >> 3) & 0xFFFE;
+	mask.resize(maskRowBytes * h);
+	for (uint y = 0; y < h; y++) {
+		for (uint x = 0; x < w; x++) {
+			bool opaque;
+			if (realMask) {
+				opaque = false;
+				if (x < mw && y < mh) {
+					uint bit = x * mbpp;
+					byte b = _maskData[y * _maskRowBytes + (bit >> 3)];
+					opaque = ((b >> (8 - mbpp - (bit & 7))) & ((1 << mbpp) - 1)) != 0;
+				}
+			} else {
+				opaque = raw[y * w + x] != 0;
+			}
+			if (opaque)
+				mask[y * maskRowBytes + (x >> 3)] |= 0x80 >> (x & 7);
+		}
+	}
+
+	_colorData.resize(w * h);
+	for (uint i = 0; i < w * h; i++)
+		_colorData[i] = s_remap[raw[i]];
+
+	_maskData = mask;
+	_maskRowBytes = maskRowBytes;
+	_maskBitWidth = w;
+	_maskBitHeight = h;
+	_imgBitWidth = w;
+	_isColor = true;
+}
+
+void ImageAsset::blitColor(Graphics::ManagedSurface *target, int ox, int oy, BlitMode mode) {
+	if (mode == kBlitXOR) // invisible objects
+		return;
+	uint sx, sy, w, h;
+	calculateSectionToDraw(target, ox, oy, _imgBitWidth, _imgBitHeight, sx, sy, w, h);
+	for (uint y = 0; y < h; y++) {
+		const byte *src = &_colorData[(y + sy) * _imgBitWidth + sx];
+		byte *dst = (byte *)target->getBasePtr(ox, oy + y);
+		for (uint x = 0; x < w; x++) {
+			if (mode != kBlitDirect) {
+				uint mx = x + sx;
+				if (!(_maskData[(y + sy) * _maskRowBytes + (mx >> 3)] & (0x80 >> (mx & 7))))
+					continue;
+			}
+			dst[x] = (mode == kBlitOR) ? s_invert[src[x]] : src[x];
+		}
+	}
+}
+
 void ImageAsset::blitInto(Graphics::ManagedSurface *target, int x, int y, BlitMode mode) {
+	if (_isColor) { // Near-Grog
+		blitColor(target, x, y, mode);
+		return;
+	}
 	if (mode == kBlitDirect) {
 		blitDirect(target, x, y, _imgData, _imgBitHeight, _imgBitWidth, _imgRowBytes);
 	} else if (mode < kBlitXOR) {

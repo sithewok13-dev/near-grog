@@ -62,13 +62,13 @@ class World;
 class ScriptEngine;
 
 class SoundManager;
+class WinVersionLoader; // Near-Grog
 
 typedef uint32 ObjID;
 
-enum {
-	kScreenWidth = 512,
-	kScreenHeight = 342
-};
+// Near-Grog: the screen size depends on the version (Mac 512x342, Windows 640x480)
+extern int kScreenWidth;
+extern int kScreenHeight;
 
 enum {
 	kGlobalSettingsID = 0x80,
@@ -293,6 +293,9 @@ public:
 	Common::Path getFilePath(FilePathID id) const;
 	bool isOldText() const;
 	const HuffmanLists *getDecodingHuffman() const;
+	// Near-Grog: Windows 3.1 versions
+	bool isWindowsVersion() const;
+	const byte *getWindowsPalette() const;
 	uint32 randBetween(uint32 min, uint32 max);
 	uint32 getInvolvedObjects();
 	int findObjectInArray(ObjID objID, const Common::Array<ObjID> &list);
@@ -385,6 +388,7 @@ private: // Attributes
 
 	Common::FSNode _gamePath;
 	Common::Archive *_dataBundle;
+	WinVersionLoader *_winLoader; // Near-Grog
 
 	// Engine state
 	GameState _gameState;

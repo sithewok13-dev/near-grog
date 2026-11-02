@@ -16,6 +16,7 @@ MODULE_OBJS := \
 	sound.o \
 	text.o \
 	windows.o \
+	winversion.o \
 	world.o
 
 

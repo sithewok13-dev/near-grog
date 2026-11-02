@@ -34,13 +34,19 @@
 #include "common/config-manager.h"
 #include "common/str-enc.h"
 #include "engines/util.h"
+#include "engines/advancedDetector.h"
 
 #include "macventure/macventure.h"
+#include "macventure/winversion.h" // Near-Grog
 
 // To move
 #include "common/file.h"
 
 namespace MacVenture {
+
+// Near-Grog: set at start for the Windows versions
+int kScreenWidth = 512;
+int kScreenHeight = 342;
 
 enum {
 	kMaxMenuTitleLength = 30
@@ -69,6 +75,7 @@ MacVentureEngine::MacVentureEngine(OSystem *syst, const ADGameDescription *gameD
 	_soundManager = nullptr;
 
 	_dataBundle = nullptr;
+	_winLoader = nullptr;
 
 	_nextFrameTime = 0;
 
@@ -116,10 +123,26 @@ MacVentureEngine::~MacVentureEngine() {
 
 	if (_dataBundle)
 		delete _dataBundle;
+
+	delete _winLoader; // Near-Grog
 }
 
 Common::Error MacVentureEngine::run() {
 	debug("MacVenture::MacVentureEngine::init()");
+
+	// Near-Grog: the Windows versions get a resource fork made from their program
+	Common::Path resForkName(getGameFileName());
+	kScreenWidth = 512;
+	kScreenHeight = 342;
+	if (isWindowsVersion()) {
+		kScreenWidth = kWinScreenWidth;
+		kScreenHeight = kWinScreenHeight;
+		_winLoader = new WinVersionLoader();
+		resForkName = _winLoader->load(getGameFileName());
+		if (resForkName.empty())
+			error("ENGINE: Could not load the Windows version from %s", getGameFileName());
+	}
+
 	initGraphics(kScreenWidth, kScreenHeight);
 
 	setInitialFlags();
@@ -130,7 +153,7 @@ Common::Error MacVentureEngine::run() {
 	debug("MacVentureEngine::init");
 
 	_resourceManager = new Common::MacResManager();
-	if (!_resourceManager->open(getGameFileName()))
+	if (!_resourceManager->open(resForkName)) // Near-Grog: was getGameFileName()
 		error("ENGINE: Could not open %s as a resource fork", getGameFileName());
 
 	// Engine-wide loading
@@ -981,6 +1004,9 @@ uint MacVentureEngine::getPrefixNdx(ObjID obj) {
 Common::String MacVentureEngine::getPrefixString(uint flag, ObjID obj) {
 	uint ndx = getPrefixNdx(obj);
 	ndx = ((ndx) >> flag) & 3;
+	// Near-Grog: the Windows tables are "", "the ", "a ", "an "; index 0 is no article
+	if (isWindowsVersion())
+		ndx++;
 	return _decodingNamingArticles->getString(ndx);
 }
 
@@ -1227,6 +1253,15 @@ bool MacVentureEngine::isOldText() const {
 
 const HuffmanLists *MacVentureEngine::getDecodingHuffman() const {
 	return _textHuffman;
+}
+
+// Near-Grog
+bool MacVentureEngine::isWindowsVersion() const {
+	return _gameDescription->platform == Common::kPlatformWindows;
+}
+
+const byte *MacVentureEngine::getWindowsPalette() const {
+	return _winLoader ? _winLoader->getPalette() : nullptr;
 }
 
 uint32 MacVentureEngine::randBetween(uint32 min, uint32 max) {

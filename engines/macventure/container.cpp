@@ -43,6 +43,7 @@ Container::Container(const Common::Path &filename) {
 	_res = Common::MacResManager::openFileOrDataFork(_filename);
 	_header = _res->readUint32BE();
 	_simplified = false;
+	_large = false;
 
 	for (uint i = 0; i < 16; ++i) {
 		_huff.push_back(0);
@@ -63,6 +64,16 @@ Container::Container(const Common::Path &filename) {
 		_res->seek(_header, SEEK_SET);
 		_numObjs = _res->readUint16BE();
 
+		// Near-Grog: the Windows versions' GRAPHICS.DAT is a "large" container:
+		// a 31-bit object count, the group table 2 bytes further on, and
+		// object lengths stored as plain numbers of twice the bit size.
+		_large = (_numObjs & 0x8000) != 0;
+		uint32 tableStart = _header;
+		if (_large) {
+			_numObjs = ((_numObjs & 0x7fff) << 16) | _res->readUint16BE();
+			tableStart += 2;
+		}
+
 		for (uint i = 0; i < 15; ++i) {
 			_huff[i] = _res->readUint16BE();
 		}
@@ -81,7 +92,7 @@ Container::Container(const Common::Path &filename) {
 			ItemGroup group;
 
 			// Place myself in the correct position to read group
-			_res->seek(_header + (i * 6) + 0x30, SEEK_SET);
+			_res->seek(tableStart + (i * 6) + 0x30, SEEK_SET); // Near-Grog: was _header
 			byte b1, b2, b3;
 			b1 = _res->readByte();
 			b2 = _res->readByte();
@@ -129,7 +140,22 @@ Container::Container(const Common::Path &filename) {
 					_res->seek(2, SEEK_CUR);
 				}
 				bitSize >>= 4;
-				if (bitSize) {
+				if (_large) {
+					// Near-Grog: plain length of 2 * bitSize bits
+					bitSize *= 2;
+					while (bitSize) {
+						uint32 n = MIN<uint32>(bitSize, 16);
+						uint32 v = _res->readUint32BE();
+						_res->seek(-4, SEEK_CUR);
+						length = (length << n) | ((v >> (32 - bits - n)) & ((1 << n) - 1));
+						bits += n;
+						if (bits & 0x10) {
+							bits &= 0xF;
+							_res->seek(2, SEEK_CUR);
+						}
+						bitSize -= n;
+					}
+				} else if (bitSize) {
 					length = _res->readUint32BE();
 					_res->seek(-4, SEEK_CUR);
 					bitSize--;
@@ -188,7 +214,11 @@ Common::SeekableReadStream *Container::getItem(uint32 id) {
 	}
 
 	// HACK Should Limit the size of the stream returned
-	Common::SeekableReadStream *res = _res->readStream(_res->size() - _res->pos() + 1);
+	// Near-Grog: large containers are megabytes, so only copy the item (plus slack for bit readers)
+	uint32 len = _res->size() - _res->pos() + 1;
+	if (_large)
+		len = MIN<uint32>(len, getItemByteSize(id) + 8);
+	Common::SeekableReadStream *res = _res->readStream(len);
 	return res;
 }
 
