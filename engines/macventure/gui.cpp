@@ -39,6 +39,7 @@
 
 #include "macventure/gui.h"
 #include "macventure/dialog.h"
+#include "macventure/modernui.h" // Near-Grog
 
 namespace MacVenture {
 
@@ -119,6 +120,8 @@ Gui::Gui(MacVentureEngine *engine, Common::MacResManager *resman) {
 	_dialog = nullptr;
 
 	_wm = new Graphics::MacWindowManager(Graphics::kWMNoScummVMWallpaper);
+	_modern = new ModernUI(this, engine); // Near-Grog
+	_modernActive = false;
 
 	_activeWinRef = kNoWindow;
 
@@ -152,7 +155,20 @@ Gui::~Gui() {
 	clearAssets();
 
 	delete _graphics;
+	delete _modern; // Near-Grog
 	delete _wm;
+}
+
+// Near-Grog: switches a phone layout on or off (the engine has set the screen up)
+void Gui::setModern(bool active, int w, int h, bool portrait, int layout, int look, int opacity, const Graphics::PixelFormat *format) {
+	_modernActive = active;
+	if (active) {
+		_modern->setup(w, h, portrait, (ModernLayout)layout, (ModernLook)look, opacity, *format);
+	} else if (g_system->getScreenFormat().isCLUT8()) {
+		g_system->getPaletteManager()->setPalette(_wm->getPalette(), 0, _wm->getPaletteSize());
+	}
+	_wm->setFullRefresh(true);
+	markRedraw();
 }
 
 void Gui::initGUI() {
@@ -225,7 +241,8 @@ void Gui::initWindowsPalette() {
 		invert[i] = nearest(255 - pal[i * 3], 255 - pal[i * 3 + 1], 255 - pal[i * 3 + 2]);
 
 	ImageAsset::setWindowsFormat(true, remap, invert);
-	g_system->getPaletteManager()->setPalette(pal, 0, 256);
+	if (g_system->getScreenFormat().isCLUT8()) // Near-Grog: not in a modern layout's true colour
+		g_system->getPaletteManager()->setPalette(pal, 0, 256);
 	_wm->passPalette(pal, 256);
 }
 
@@ -235,6 +252,19 @@ void Gui::reloadInternals() {
 }
 
 void Gui::draw() {
+	// Near-Grog: a modern layout draws its own screen from the windows
+	if (_modernActive) {
+		if (_needsRedraw) {
+			drawWindows();
+			_needsRedraw = false;
+		}
+		_wm->removeMarked();
+		drawDialog();
+		_modern->setDialog(_dialog ? &_dialog->getBounds() : nullptr);
+		_modern->render();
+		return;
+	}
+
 	if (_needsRedraw) {
 		_wm->setFullRefresh(true);
 
@@ -335,7 +365,10 @@ bool Gui::decodeTitleScreen() {
 }
 
 bool Gui::displayTitleScreenAndWait(uint32 ms) {
-	g_system->copyRectToScreen(_screen.getPixels(), kScreenWidth, 0, 0, kScreenWidth, kScreenHeight);
+	if (_modernActive) // Near-Grog
+		_modern->showPicture(_screen);
+	else
+		g_system->copyRectToScreen(_screen.getPixels(), kScreenWidth, 0, 0, kScreenWidth, kScreenHeight);
 
 	uint32 now = g_system->getMillis();
 	while (g_system->getMillis() < now + 3000) {
@@ -421,6 +454,9 @@ void Gui::initWindows() {
 	_outConsoleWindow->setDimensions(bounds);
 	_outConsoleWindow->resizeInner(bounds.width() - bbs.rightScrollbarWidth, bounds.height() - bbs.bottomScrollbarHeight);
 	_outConsoleWindow->move(bounds.left - bbs.leftOffset, bounds.top - bbs.topOffset);
+	// Near-Grog: give the text the whole window (it was sized for the window's
+	// outer bounds, so its last line was cut off at the bottom)
+	_outConsoleWindow->setDimensions(_outConsoleWindow->getDimensions());
 	_outConsoleWindow->setActive(false);
 	_outConsoleWindow->setCallback(outConsoleWindowCallback, this);
 	_outConsoleWindow->setTitle("Untitled");
@@ -1027,6 +1063,8 @@ void Gui::drawWindowTitle(WindowReference target, Graphics::ManagedSurface *surf
 }
 
 void Gui::drawDraggedObjects() {
+	if (_modernActive) // Near-Grog: drawn by the layout
+		return;
 	for (uint i = 0; i < _draggedObjects.size(); i++) {
 		if (_draggedObjects[i].id != 0 &&
 			_engine->isObjVisible(_draggedObjects[i].id) && _draggedObjects[i].hasMoved) {
@@ -1196,6 +1234,7 @@ void Gui::setConsoleText(const Common::String &text) {
 	_outConsoleWindow->setEditable(true);
 	_outConsoleWindow->appendText(text);
 	_outConsoleWindow->setEditable(false);
+	_modern->setText(text); // Near-Grog
 }
 
 void Gui::printText(const Common::String &text) {
@@ -1206,9 +1245,14 @@ void Gui::printText(const Common::String &text) {
 	_outConsoleWindow->appendText(text + '\n');
 	_outConsoleWindow->setEditable(false);
 	_outConsoleWindow->scrollToBottom();
+	_modern->addText(text); // Near-Grog
 }
 
 void Gui::scrollConsoleToRow(uint row) {
+	if (_modernActive) { // Near-Grog
+		_modern->scrollToRow(row);
+		return;
+	}
 	int lineHeight = _outConsoleWindow->getLineHeight(0) + _outConsoleWindow->getLineSpacing();
 	if (lineHeight <= 0) {
 		_outConsoleWindow->scrollToBottom();
@@ -1218,10 +1262,14 @@ void Gui::scrollConsoleToRow(uint row) {
 }
 
 uint Gui::getConsoleRowCount() {
+	if (_modernActive) // Near-Grog
+		return _modern->rowCount();
 	return _outConsoleWindow->getRowCount();
 }
 
 uint Gui::getConsoleVisibleRows() {
+	if (_modernActive) // Near-Grog
+		return _modern->visibleRows();
 	int lineHeight = _outConsoleWindow->getLineHeight(0) + _outConsoleWindow->getLineSpacing();
 	if (lineHeight <= 0) {
 		return 1;
@@ -1491,6 +1539,13 @@ void Gui::handleDragRelease(bool shiftPressed, bool isDoubleClick) {
 	} else {
 		WindowReference destinationWindow = findWindowAtPoint(_cursor->getPos());
 		if (destinationWindow == kNoWindow) {
+			return;
+		}
+		// Near-Grog: a double tap on a modern layout's shelf or SELF
+		ObjID forcedObj;
+		WindowReference forcedRef;
+		if (isDoubleClick && _modernActive && _modern->lastForcedPick(forcedObj, forcedRef)) {
+			_engine->handleObjectSelect(forcedObj, forcedRef, shiftPressed, isDoubleClick);
 			return;
 		}
 		if (isDoubleClick) {
@@ -1764,6 +1819,13 @@ Common::Point Gui::getObjMeasures(ObjID obj) {
 
 bool Gui::processEvent(Common::Event &event) {
 	bool processed = false;
+
+	// Near-Grog: touches on a modern layout; the rest go on to the hidden windows
+	if (_modernActive && _modern->processEvent(event)) {
+		if (event.type != Common::EVENT_MOUSEMOVE)
+			markRedraw();
+		return true;
+	}
 
 	if (event.type != Common::EVENT_MOUSEMOVE)
 		markRedraw();
@@ -2039,6 +2101,18 @@ bool Gui::processInventoryEvents(WindowReference ref, WindowClick click, Common:
 }
 
 void Gui::select(Common::Point cursorPosition, bool shiftPressed, bool isDoubleClick) {
+	// Near-Grog: an object picked on a modern layout's shelf or SELF button
+	ObjID forcedObj;
+	WindowReference forcedRef;
+	if (_modernActive && _modern->takeForcedPick(forcedObj, forcedRef)) {
+		if (_engine->needsClickToContinue())
+			return;
+		if (!isDoubleClick && !shiftPressed)
+			selectDraggable(forcedObj, forcedRef, cursorPosition);
+		_engine->handleObjectSelect(forcedObj, forcedRef, shiftPressed, isDoubleClick);
+		bringToFront(forcedRef);
+		return;
+	}
 	WindowReference ref = findWindowAtPoint(cursorPosition);
 	if (ref == kNoWindow) {
 		return;

@@ -38,6 +38,8 @@
 
 #include "macventure/macventure.h"
 #include "macventure/winversion.h" // Near-Grog
+#include "macventure/modernui.h"
+#include "macventure/neargrog_tray.h"
 
 // To move
 #include "common/file.h"
@@ -178,6 +180,8 @@ Common::Error MacVentureEngine::run() {
 
 	_soundManager = new SoundManager(this, _mixer);
 
+	applyLayout(); // Near-Grog
+
 	int directSaveSlotLoading = ConfMan.getInt("save_slot");
 	if (directSaveSlotLoading >= 0) {
 		if (loadGameState(directSaveSlotLoading).getCode() != Common::kNoError) {
@@ -293,6 +297,42 @@ void MacVentureEngine::resetGui() {
 	updateExits();
 	_gui->markRedraw();
 	refreshScreen();
+}
+
+// Near-Grog: sets the screen up for the chosen layout. The modern ones draw
+// a wide (or, held upright, a tall) true-colour screen of their own.
+void MacVentureEngine::applyLayout() {
+	ModernLayout layout = ModernUI::configLayout();
+	Graphics::PixelFormat format;
+	bool found = false;
+	Common::List<Graphics::PixelFormat> formats = g_system->getSupportedFormats();
+	for (Common::List<Graphics::PixelFormat>::const_iterator it = formats.begin(); it != formats.end(); ++it) {
+		if (it->bytesPerPixel == 4) {
+			format = *it;
+			found = true;
+			break;
+		}
+	}
+	if (!found)
+		layout = kLayoutOriginal;
+
+	if (layout == kLayoutOriginal) {
+		if (g_system->getWidth() != kScreenWidth || g_system->getHeight() != kScreenHeight || !g_system->getScreenFormat().isCLUT8())
+			initGraphics(kScreenWidth, kScreenHeight);
+		_gui->setModern(false);
+	} else {
+		const bool portrait = ModernUI::portraitScreen();
+		int w, h;
+		ModernUI::screenSize(portrait, w, h);
+		if (g_system->getWidth() != w || g_system->getHeight() != h || g_system->getScreenFormat() != format)
+			initGraphics(w, h, &format);
+		_gui->setModern(true, w, h, portrait, layout, ModernUI::configLook(), ModernUI::configOpacity(), &format);
+	}
+	_gui->markRedraw();
+}
+
+void MacVentureEngine::openMainMenuDialog() {
+	NearGrogTray::open(this);
 }
 
 void MacVentureEngine::requestQuit() {
@@ -565,6 +605,11 @@ void MacVentureEngine::processEvents() {
 			continue;
 
 		switch (event.type) {
+		case Common::EVENT_SCREEN_CHANGED:
+			// Near-Grog: the phone turned between portrait and landscape
+			if (_gui->isModern() && ModernUI::portraitScreen() != _gui->getModern()->isPortrait())
+				applyLayout();
+			break;
 		case Common::EVENT_QUIT:
 		case Common::EVENT_RETURN_TO_LAUNCHER:
 			_gameState = kGameStateQuitting;

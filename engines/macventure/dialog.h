@@ -67,6 +67,7 @@ public:
 
 	void setUserInput(Common::String content);
 	DialogElement *getElement(Common::String elementID);
+	const Common::Rect &getBounds() const { return _bounds; } // Near-Grog
 
 private:
 	void addPrebuiltElement(const PrebuiltDialogElement &element, const Common::String &title = "");

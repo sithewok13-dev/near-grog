@@ -10,6 +10,8 @@ MODULE_OBJS := \
 	image.o \
 	macventure.o \
 	metaengine.o \
+	modernui.o \
+	neargrog_tray.o \
 	prebuilt_dialogs.o \
 	saveload.o \
 	script.o \
