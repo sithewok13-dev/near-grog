@@ -89,6 +89,8 @@ public:
 	/** A key from the host: PC scan code and ASCII (0 for none). */
 	void keyDown(uint8 scan, uint8 ascii);
 	void keyUp(uint8 scan);
+	/** Keys to type, one each time the program first waits for one. */
+	void addBootKeys(const Common::String &keys);
 	/** Mouse in screen pixels (640x400). */
 	void mouseMove(int x, int y);
 	void mouseButton(int button, bool down);
@@ -141,8 +143,10 @@ private:
 
 	// Keyboard: BIOS buffer of (scan << 8 | ascii) and the port 60 latch
 	Common::Array<uint16> _keys;
-	Common::Array<uint8> _scanQueue;
-	uint8 _port60;
+	Common::Array<uint16> _scanQueue; // scan code, and ASCII for a key pressed
+	Common::Array<uint8> _bootKeys;
+	uint32 _bootKeyFrame;
+	uint8 _port60, _port60Ascii;
 	uint8 _picMask;
 	uint8 _picInService; // IRQs being handled, until the handler's EOI
 
@@ -171,6 +175,7 @@ private:
 
 	void int10();
 	void keyboardBios();
+	void feedBootKey();
 	void int21();
 	void int33();
 	void int1a();

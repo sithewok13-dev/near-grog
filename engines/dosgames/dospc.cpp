@@ -33,6 +33,7 @@ enum {
 	kFirstMcb = 0x0800,
 	kMemTop = 0xA000,
 	kBda = 0x400,
+	kBiosKeyBuffer = 15,
 	kFrameMs = 20,
 	kPitHz = 1193182,
 	kRefreshInstructions = DosPC::kInstructionsPerFrame * 50 / 70,
@@ -53,7 +54,7 @@ static const byte kEgaColours[16 * 3] = {
 
 DosPC::DosPC(DosHost *host) : _host(host), _cpu(this), _nextProgram(0), _currentPsp(0),
 		_returnCode(0), _finished(false), _foundPos(0), _videoMode(3), _paletteDirty(true),
-		_dacWrite(0), _dacRead(0), _dacComp(0), _instructions(0), _port60(0), _picMask(0), _picInService(0),
+		_dacWrite(0), _dacRead(0), _dacComp(0), _instructions(0), _port60(0), _port60Ascii(0), _bootKeyFrame(0), _picMask(0), _picInService(0),
 		_mouseX(320), _mouseY(100), _mouseButtons(0), _mouseMinX(0), _mouseMaxX(639),
 		_mouseMinY(0), _mouseMaxY(199), _mouseCursor(-1), _pitDivisor(65536), _pitLatchLow(0),
 		_pitLowNext(true), _tickAccum(0), _oplReg(0), _oplTimerCtl(0), _waitingForKey(false),
@@ -286,8 +287,11 @@ bool DosPC::interrupt(uint8 n) {
 		break;
 	case 0x09:
 		_picInService &= ~2;
-		// BIOS keyboard handler: keys already reach the BIOS buffer as they
-		// are typed, so there is nothing to do
+		// BIOS keyboard handler: a key pressed goes into the BIOS buffer
+		// (programs with their own handler that don't chain here keep
+		// their keys to themselves, as on a real PC)
+		if (!(_port60 & 0x80) && _keys.size() < kBiosKeyBuffer)
+			_keys.push_back((_port60 << 8) | _port60Ascii);
 		break;
 	case 0x10: int10(); break;
 	case 0x11: _cpu.r[Cpu8086::kAX] = READ_LE_UINT16(&_mem[kBda + 0x10]); break;
@@ -532,6 +536,8 @@ void DosPC::int10() {
 
 void DosPC::keyboardBios() {
 	uint8 ah = _cpu.rb(4);
+	if (ah <= 0x01 || ah == 0x10 || ah == 0x11)
+		feedBootKey();
 	switch (ah) {
 	case 0x00:
 	case 0x10:
@@ -567,12 +573,29 @@ void DosPC::keyboardBios() {
 // --- Keyboard and mouse from the host ---
 
 void DosPC::keyDown(uint8 scan, uint8 ascii) {
-	_scanQueue.push_back(scan);
-	_keys.push_back((scan << 8) | ascii);
+	_scanQueue.push_back((ascii << 8) | scan);
 }
 
 void DosPC::keyUp(uint8 scan) {
 	_scanQueue.push_back(scan | 0x80);
+}
+
+void DosPC::addBootKeys(const Common::String &keys) {
+	for (uint i = 0; i < keys.size(); i++)
+		_bootKeys.push_back(keys[i]);
+}
+
+// A key the program waits for at startup (a menu of devices, say), typed
+// for the player when it finds the BIOS buffer empty, a little while after
+// the last one (so a loop that empties the buffer doesn't take them all)
+void DosPC::feedBootKey() {
+	if (_bootKeys.empty() || !_keys.empty() || _frame < _bootKeyFrame + 10)
+		return;
+	_bootKeyFrame = _frame;
+	uint8 c = _bootKeys[0];
+	_bootKeys.remove_at(0);
+	uint8 scan = c == 13 ? 0x1C : (c >= '1' && c <= '9') ? 0x02 + c - '1' : c == '0' ? 0x0B : 0;
+	_keys.push_back((scan << 8) | c);
 }
 
 void DosPC::mouseMove(int x, int y) {
@@ -1030,6 +1053,7 @@ void DosPC::int21() {
 	case 0x01:
 	case 0x07:
 	case 0x08:
+		feedBootKey();
 		if (_keys.empty()) {
 			_cpu.ip -= 2;
 			_cpu.flags |= Cpu8086::kIF;
@@ -1047,6 +1071,7 @@ void DosPC::int21() {
 		break;
 	case 0x06:
 		if (_cpu.rb(2) == 0xFF) {
+			feedBootKey();
 			if (_keys.empty()) {
 				setStackedFlag(Cpu8086::kZF, true);
 				_cpu.wb(0, 0);
@@ -1068,6 +1093,7 @@ void DosPC::int21() {
 		}
 		break;
 	case 0x0B:
+		feedBootKey();
 		_cpu.wb(0, _keys.empty() ? 0 : 0xFF);
 		break;
 	case 0x0C:
@@ -1375,7 +1401,8 @@ bool DosPC::runFrame() {
 		if (pending && raiseIrq(0))
 			pending--;
 		if ((i & 1023) == 0 && !_scanQueue.empty() && _cpu.flag(Cpu8086::kIF) && !(_picMask & 2) && !(_picInService & 3)) {
-			_port60 = _scanQueue[0];
+			_port60 = _scanQueue[0] & 0xFF;
+			_port60Ascii = _scanQueue[0] >> 8;
 			_scanQueue.remove_at(0);
 			raiseIrq(1);
 		}
