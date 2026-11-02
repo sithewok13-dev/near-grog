@@ -33,8 +33,11 @@ enum {
 	kFirstMcb = 0x0800,
 	kMemTop = 0xA000,
 	kBda = 0x400,
+	kBiosKeyBuffer = 15,
 	kFrameMs = 20,
-	kPitHz = 1193182
+	kPitHz = 1193182,
+	kRefreshInstructions = DosPC::kInstructionsPerFrame * 50 / 70,
+	kLineInstructions = kRefreshInstructions / 449
 };
 
 // Errors DOS returns in AX with carry set
@@ -51,7 +54,7 @@ static const byte kEgaColours[16 * 3] = {
 
 DosPC::DosPC(DosHost *host) : _host(host), _cpu(this), _nextProgram(0), _currentPsp(0),
 		_returnCode(0), _finished(false), _foundPos(0), _videoMode(3), _paletteDirty(true),
-		_dacWrite(0), _dacRead(0), _dacComp(0), _retrace(0), _port60(0), _picMask(0), _picInService(0),
+		_dacWrite(0), _dacRead(0), _dacComp(0), _instructions(0), _port60(0), _port60Ascii(0), _bootKeyFrame(0), _picMask(0), _picInService(0),
 		_mouseX(320), _mouseY(100), _mouseButtons(0), _mouseMinX(0), _mouseMaxX(639),
 		_mouseMinY(0), _mouseMaxY(199), _mouseCursor(-1), _pitDivisor(65536), _pitLatchLow(0),
 		_pitLowNext(true), _tickAccum(0), _oplReg(0), _oplTimerCtl(0), _waitingForKey(false),
@@ -178,10 +181,15 @@ uint8 DosPC::in8(uint16 port) {
 		}
 		return v;
 	}
-	case 0x3DA:
-		// Vertical retrace for a slice of each 70 Hz refresh
-		_retrace++;
-		return ((_retrace % 64) < 6) ? 0x09 : 0x00;
+	case 0x3DA: {
+		// A 70 Hz refresh timed by instructions run: vertical retrace (bits 3
+		// and 0) for its first part, then lines with a short horizontal
+		// blank (bit 0) each
+		uint32 pos = _instructions % kRefreshInstructions;
+		if (pos < kRefreshInstructions / 20)
+			return 0x09;
+		return (pos % kLineInstructions) < kLineInstructions / 5 ? 0x01 : 0x00;
+	}
 	default:
 		return 0xFF;
 	}
@@ -279,8 +287,11 @@ bool DosPC::interrupt(uint8 n) {
 		break;
 	case 0x09:
 		_picInService &= ~2;
-		// BIOS keyboard handler: keys already reach the BIOS buffer as they
-		// are typed, so there is nothing to do
+		// BIOS keyboard handler: a key pressed goes into the BIOS buffer
+		// (programs with their own handler that don't chain here keep
+		// their keys to themselves, as on a real PC)
+		if (!(_port60 & 0x80) && _keys.size() < kBiosKeyBuffer)
+			_keys.push_back((_port60 << 8) | _port60Ascii);
 		break;
 	case 0x10: int10(); break;
 	case 0x11: _cpu.r[Cpu8086::kAX] = READ_LE_UINT16(&_mem[kBda + 0x10]); break;
@@ -333,29 +344,31 @@ void DosPC::int1a() {
 // Text mode output through the BIOS
 void DosPC::scrollText(int top, int bottom, int lines, uint8 attr) {
 	byte *vram = &_mem[0xB8000];
+	int cols = textCols();
 	if (lines == 0 || lines > bottom - top) {
 		for (int r = top; r <= bottom; r++)
-			for (int c = 0; c < 80; c++) {
-				vram[(r * 80 + c) * 2] = ' ';
-				vram[(r * 80 + c) * 2 + 1] = attr;
+			for (int c = 0; c < cols; c++) {
+				vram[(r * cols + c) * 2] = ' ';
+				vram[(r * cols + c) * 2 + 1] = attr;
 			}
 		return;
 	}
 	for (int r = top; r <= bottom - lines; r++)
-		memcpy(&vram[r * 160], &vram[(r + lines) * 160], 160);
+		memcpy(&vram[r * cols * 2], &vram[(r + lines) * cols * 2], cols * 2);
 	for (int r = bottom - lines + 1; r <= bottom; r++)
-		for (int c = 0; c < 80; c++) {
-			vram[(r * 80 + c) * 2] = ' ';
-			vram[(r * 80 + c) * 2 + 1] = attr;
+		for (int c = 0; c < cols; c++) {
+			vram[(r * cols + c) * 2] = ' ';
+			vram[(r * cols + c) * 2 + 1] = attr;
 		}
 }
 
 void DosPC::putChar(uint8 c, uint8 attr, bool advance) {
 	uint8 &col = _mem[kBda + 0x50], &row = _mem[kBda + 0x51];
+	int cols = textCols();
 	if (!advance) {
-		if (_videoMode == 3) {
-			_mem[0xB8000 + (row * 80 + col) * 2] = c;
-			_mem[0xB8000 + (row * 80 + col) * 2 + 1] = attr;
+		if (isText()) {
+			_mem[0xB8000 + (row * cols + col) * 2] = c;
+			_mem[0xB8000 + (row * cols + col) * 2 + 1] = attr;
 		}
 		return;
 	}
@@ -373,19 +386,19 @@ void DosPC::putChar(uint8 c, uint8 attr, bool advance) {
 		col = 0;
 		return;
 	default:
-		if (_videoMode == 3) {
-			_mem[0xB8000 + (row * 80 + col) * 2] = c;
+		if (isText()) {
+			_mem[0xB8000 + (row * cols + col) * 2] = c;
 			if (attr)
-				_mem[0xB8000 + (row * 80 + col) * 2 + 1] = attr;
+				_mem[0xB8000 + (row * cols + col) * 2 + 1] = attr;
 		}
-		if (++col >= 80) {
+		if (++col >= cols) {
 			col = 0;
 			row++;
 		}
 		break;
 	}
 	if (row >= 25) {
-		if (_videoMode == 3)
+		if (isText())
 			scrollText(0, 24, 1, 7);
 		row = 24;
 	}
@@ -397,6 +410,7 @@ void DosPC::int10() {
 	case 0x00:
 		_videoMode = al & 0x7F;
 		_mem[kBda + 0x49] = _videoMode;
+		WRITE_LE_UINT16(&_mem[kBda + 0x4A], textCols());
 		_mem[kBda + 0x50] = _mem[kBda + 0x51] = 0;
 		memcpy(_dac, kEgaColours, sizeof(kEgaColours));
 		if (_videoMode == 0x13) {
@@ -413,7 +427,7 @@ void DosPC::int10() {
 	case 0x01:
 		break;
 	case 0x02:
-		_mem[kBda + 0x50] = _cpu.rb(2) % 80; // DL
+		_mem[kBda + 0x50] = _cpu.rb(2) % textCols(); // DL
 		_mem[kBda + 0x51] = _cpu.rb(6) % 25; // DH
 		break;
 	case 0x03:
@@ -425,11 +439,11 @@ void DosPC::int10() {
 		break;
 	case 0x06:
 	case 0x07:
-		if (_videoMode == 3)
+		if (isText())
 			scrollText(_cpu.rb(5), MIN<int>(_cpu.rb(6), 24), al, _cpu.rb(7));
 		break;
 	case 0x08: {
-		int pos = (_mem[kBda + 0x51] * 80 + _mem[kBda + 0x50]) * 2;
+		int pos = (_mem[kBda + 0x51] * textCols() + _mem[kBda + 0x50]) * 2;
 		_cpu.r[Cpu8086::kAX] = _mem[0xB8000 + pos] | (_mem[0xB8000 + pos + 1] << 8);
 		break;
 	}
@@ -437,9 +451,9 @@ void DosPC::int10() {
 	case 0x0A: {
 		int count = _cpu.r[Cpu8086::kCX];
 		uint8 col = _mem[kBda + 0x50];
-		for (int i = 0; i < count && col + i < 80; i++) {
+		for (int i = 0; i < count && col + i < textCols(); i++) {
 			_mem[kBda + 0x50] = col + i;
-			putChar(al, ah == 0x09 ? _cpu.rb(3) : _mem[0xB8000 + (_mem[kBda + 0x51] * 80 + col + i) * 2 + 1], false);
+			putChar(al, ah == 0x09 ? _cpu.rb(3) : _mem[0xB8000 + (_mem[kBda + 0x51] * textCols() + col + i) * 2 + 1], false);
 		}
 		_mem[kBda + 0x50] = col;
 		break;
@@ -457,7 +471,7 @@ void DosPC::int10() {
 		break;
 	case 0x0F:
 		_cpu.wb(0, _videoMode);
-		_cpu.wb(4, _videoMode == 0x13 ? 40 : 80);
+		_cpu.wb(4, _videoMode == 0x13 ? 40 : textCols());
 		_cpu.wb(7, 0);
 		break;
 	case 0x10:
@@ -522,6 +536,8 @@ void DosPC::int10() {
 
 void DosPC::keyboardBios() {
 	uint8 ah = _cpu.rb(4);
+	if (ah <= 0x01 || ah == 0x10 || ah == 0x11)
+		feedBootKey();
 	switch (ah) {
 	case 0x00:
 	case 0x10:
@@ -557,17 +573,36 @@ void DosPC::keyboardBios() {
 // --- Keyboard and mouse from the host ---
 
 void DosPC::keyDown(uint8 scan, uint8 ascii) {
-	_scanQueue.push_back(scan);
-	_keys.push_back((scan << 8) | ascii);
+	_scanQueue.push_back((ascii << 8) | scan);
 }
 
 void DosPC::keyUp(uint8 scan) {
 	_scanQueue.push_back(scan | 0x80);
 }
 
+void DosPC::addBootKeys(const Common::String &keys) {
+	for (uint i = 0; i < keys.size(); i++)
+		_bootKeys.push_back(keys[i]);
+}
+
+// A key the program waits for at startup (a menu of devices, say), typed
+// for the player when it finds the BIOS buffer empty, a little while after
+// the last one (so a loop that empties the buffer doesn't take them all)
+void DosPC::feedBootKey() {
+	if (_bootKeys.empty() || !_keys.empty() || _frame < _bootKeyFrame + 10)
+		return;
+	_bootKeyFrame = _frame;
+	uint8 c = _bootKeys[0];
+	_bootKeys.remove_at(0);
+	uint8 scan = c == 13 ? 0x1C : (c >= '1' && c <= '9') ? 0x02 + c - '1' : c == '0' ? 0x0B : 0;
+	_keys.push_back((scan << 8) | c);
+}
+
 void DosPC::mouseMove(int x, int y) {
-	_mouseX = CLIP(x, _mouseMinX, _mouseMaxX);
-	_mouseY = CLIP(y / 2, _mouseMinY, _mouseMaxY);
+	// The screen spread over the range the game set (by default 640 x 200,
+	// what the driver reports in mode 13h)
+	_mouseX = CLIP(_mouseMinX + x * (_mouseMaxX - _mouseMinX + 1) / kScreenW, _mouseMinX, _mouseMaxX);
+	_mouseY = CLIP(_mouseMinY + y * (_mouseMaxY - _mouseMinY + 1) / kScreenH, _mouseMinY, _mouseMaxY);
 }
 
 void DosPC::mouseButton(int button, bool down) {
@@ -584,6 +619,7 @@ void DosPC::mouseButton(int button, bool down) {
 
 void DosPC::int33() {
 	uint16 ax = _cpu.r[Cpu8086::kAX];
+	debug(2, "DosPC: INT 33 AX=%04X BX=%04X CX=%04X DX=%04X", ax, _cpu.r[Cpu8086::kBX], _cpu.r[Cpu8086::kCX], _cpu.r[Cpu8086::kDX]);
 	switch (ax) {
 	case 0x00:
 	case 0x21:
@@ -866,6 +902,14 @@ bool DosPC::exec(const Common::String &path, const Common::String &args, bool fr
 			warning("DosPC: not enough memory for %s", name.c_str());
 			return false;
 		}
+		// DOS gives the program no more than its header's maximum asks for
+		uint16 maxAlloc = READ_LE_UINT16(&image[12]);
+		uint32 wanted = (size + 15) / 16 + maxAlloc + 0x10;
+		if (wanted < blockParas) {
+			resize(psp, wanted, &largest);
+			blockParas = wanted;
+			WRITE_LE_UINT16(&_mem[p + 2], psp + blockParas);
+		}
 		memcpy(&_mem[load << 4], &image[header], size);
 		uint16 relocTable = READ_LE_UINT16(&image[0x18]);
 		for (uint i = 0; i < relocs; i++) {
@@ -1000,6 +1044,7 @@ void DosPC::int21() {
 		setStackedFlag(Cpu8086::kCF, true);
 	};
 	auto ok = [&]() { setStackedFlag(Cpu8086::kCF, false); };
+	debug(2, "DosPC: INT 21 AX=%04X BX=%04X CX=%04X DX=%04X from %04X:%04X", ax, bx, cx, dx, _cpu.mem16(_cpu.seg[Cpu8086::kSS], _cpu.r[Cpu8086::kSP] + 2), _cpu.mem16(_cpu.seg[Cpu8086::kSS], _cpu.r[Cpu8086::kSP]));
 
 	switch (ah) {
 	case 0x00:
@@ -1008,6 +1053,7 @@ void DosPC::int21() {
 	case 0x01:
 	case 0x07:
 	case 0x08:
+		feedBootKey();
 		if (_keys.empty()) {
 			_cpu.ip -= 2;
 			_cpu.flags |= Cpu8086::kIF;
@@ -1025,6 +1071,7 @@ void DosPC::int21() {
 		break;
 	case 0x06:
 		if (_cpu.rb(2) == 0xFF) {
+			feedBootKey();
 			if (_keys.empty()) {
 				setStackedFlag(Cpu8086::kZF, true);
 				_cpu.wb(0, 0);
@@ -1046,6 +1093,7 @@ void DosPC::int21() {
 		}
 		break;
 	case 0x0B:
+		feedBootKey();
 		_cpu.wb(0, _keys.empty() ? 0 : 0xFF);
 		break;
 	case 0x0C:
@@ -1076,6 +1124,10 @@ void DosPC::int21() {
 		cx = 1990;
 		dx = 0x0101;
 		_cpu.wb(0, 1);
+		break;
+	case 0x2B:
+	case 0x2D:
+		_cpu.wb(0, 0); // setting the date or time: accepted, and ignored
 		break;
 	case 0x2C: {
 		uint32 hs = _frame * kFrameMs / 10;
@@ -1340,6 +1392,7 @@ bool DosPC::runFrame() {
 	_waitingForKey = false;
 	for (int i = 0; i < kInstructionsPerFrame && !_finished; i++) {
 		_cpu.step();
+		_instructions++;
 		if (i == nextTick && ticks > 0) {
 			pending++;
 			ticks--;
@@ -1348,7 +1401,8 @@ bool DosPC::runFrame() {
 		if (pending && raiseIrq(0))
 			pending--;
 		if ((i & 1023) == 0 && !_scanQueue.empty() && _cpu.flag(Cpu8086::kIF) && !(_picMask & 2) && !(_picInService & 3)) {
-			_port60 = _scanQueue[0];
+			_port60 = _scanQueue[0] & 0xFF;
+			_port60Ascii = _scanQueue[0] >> 8;
 			_scanQueue.remove_at(0);
 			raiseIrq(1);
 		}
@@ -1369,17 +1423,19 @@ void DosPC::render(byte *dst, int pitch) {
 			memcpy(o + pitch, o, kScreenW);
 		}
 	} else {
-		// Text: 80x25 from the font the engine supplied at memory F000:A000
+		// Text: 80x25 (or 40x25, doubled) from the font the engine supplied
+		// at memory F000:A000
 		const byte *vram = &_mem[0xB8000];
 		const byte *font = &_mem[0xFA000];
+		int cols = textCols(), scale = 80 / cols;
 		for (int row = 0; row < 25; row++) {
-			for (int col = 0; col < 80; col++) {
-				byte ch = vram[(row * 80 + col) * 2], attr = vram[(row * 80 + col) * 2 + 1];
+			for (int col = 0; col < cols; col++) {
+				byte ch = vram[(row * cols + col) * 2], attr = vram[(row * cols + col) * 2 + 1];
 				for (int y = 0; y < 16; y++) {
 					byte bits = font[ch * 8 + y / 2];
-					byte *o = dst + (row * 16 + y) * pitch + col * 8;
-					for (int x = 0; x < 8; x++)
-						o[x] = (bits & (0x80 >> x)) ? (attr & 15) : (attr >> 4) & 7;
+					byte *o = dst + (row * 16 + y) * pitch + col * 8 * scale;
+					for (int x = 0; x < 8 * scale; x++)
+						o[x] = (bits & (0x80 >> (x / scale))) ? (attr & 15) : (attr >> 4) & 7;
 				}
 			}
 		}
@@ -1406,7 +1462,7 @@ void DosPC::render(byte *dst, int pitch) {
 
 void DosPC::saveState(Common::WriteStream &s) {
 	s.writeUint32BE(MKTAG('D', 'O', 'S', 'P'));
-	s.writeUint32LE(1);
+	s.writeUint32LE(2);
 	s.write(_mem, 0x100000);
 	for (int i = 0; i < 8; i++)
 		s.writeUint16LE(_cpu.r[i]);
@@ -1441,10 +1497,20 @@ void DosPC::saveState(Common::WriteStream &s) {
 			s.write(f.data.data(), f.data.size());
 	}
 	s.writeSint32LE(_mouseCursor);
+	// Version 2
+	s.writeSint16LE(_mouseX);
+	s.writeSint16LE(_mouseY);
+	s.writeSint16LE(_mouseMinX);
+	s.writeSint16LE(_mouseMaxX);
+	s.writeSint16LE(_mouseMinY);
+	s.writeSint16LE(_mouseMaxY);
 }
 
 bool DosPC::loadState(Common::ReadStream &s) {
-	if (s.readUint32BE() != MKTAG('D', 'O', 'S', 'P') || s.readUint32LE() != 1)
+	if (s.readUint32BE() != MKTAG('D', 'O', 'S', 'P'))
+		return false;
+	uint32 version = s.readUint32LE();
+	if (version < 1 || version > 2)
 		return false;
 	s.read(_mem, 0x100000);
 	for (int i = 0; i < 8; i++)
@@ -1483,6 +1549,14 @@ bool DosPC::loadState(Common::ReadStream &s) {
 			s.read(f.data.data(), f.data.size());
 	}
 	_mouseCursor = s.readSint32LE();
+	if (version >= 2) {
+		_mouseX = s.readSint16LE();
+		_mouseY = s.readSint16LE();
+		_mouseMinX = s.readSint16LE();
+		_mouseMaxX = s.readSint16LE();
+		_mouseMinY = s.readSint16LE();
+		_mouseMaxY = s.readSint16LE();
+	}
 	_keys.clear();
 	_scanQueue.clear();
 	_finished = false;

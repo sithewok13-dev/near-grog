@@ -28,7 +28,9 @@ namespace DosGames {
 
 enum GameId {
 	kGameFoolsErrand,
-	kGameDondra
+	kGameDondra,
+	kGameCountdown,
+	kGameAlteredDestiny
 };
 
 struct DosGameDescription {
@@ -62,7 +64,8 @@ public:
 	}
 
 	const char *getOriginalCopyright() const override {
-		return "The Fool's Errand (C) 1987-89 Cliff Johnson; Dondra (C) 1991 Miles Computing";
+		return "The Fool's Errand (C) 1987-89 Cliff Johnson; Dondra (C) 1991 Miles Computing; "
+			"Countdown (C) 1990 Access Software; Altered Destiny (C) 1990 Accolade";
 	}
 };
 

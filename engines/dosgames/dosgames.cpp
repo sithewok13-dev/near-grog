@@ -133,10 +133,17 @@ void DosGamesEngine::setUpPrograms() {
 			_pc->overrideFile("GAME.CFG", cfg);
 		}
 		_pc->addProgram("F.EXE", "");
-	} else {
+	} else if (_desc->gameId == kGameDondra) {
 		// As QM.BAT does: the AdLib driver stays resident, then the game
 		_pc->addProgram("SOUND.COM", "B6000");
 		_pc->addProgram("QM1.EXE", "/VGA");
+	} else if (_desc->gameId == kGameCountdown) {
+		// The game asks for its input and sound devices: mouse, AdLib
+		_pc->addBootKeys("12");
+		_pc->addProgram("COUNT.EXE", "");
+	} else {
+		// As the game's own batch file runs it: VGA, mouse and AdLib
+		_pc->addProgram("EXE.EXE", "MCGA Mouse AdLib");
 	}
 }
 

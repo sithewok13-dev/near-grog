@@ -38,7 +38,8 @@ namespace DosGames {
 
 /**
  * DOS games run from their original programs on a minimal PC (see DosPC):
- * The Fool's Errand and Dondra: A New Beginning (Questmaster I).
+ * The Fool's Errand, Dondra: A New Beginning (Questmaster I), Countdown and
+ * Altered Destiny.
  */
 class DosGamesEngine : public Engine, public DosHost {
 public:
