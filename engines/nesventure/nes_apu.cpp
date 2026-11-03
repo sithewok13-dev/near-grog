@@ -47,7 +47,7 @@ const uint16 kDmcRate[16] = { 428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 
 struct Envelope {
 	bool start, loop, constant;
 	uint8 period, divider, decay, volume;
-	void clock() {
+	void tick() {
 		if (start) {
 			start = false;
 			decay = 15;
@@ -327,9 +327,9 @@ void Nes::apuRun(int cycles) {
 			break;
 		}
 		if (quarter) {
-			a.pulse[0].env.clock();
-			a.pulse[1].env.clock();
-			a.noise.env.clock();
+			a.pulse[0].env.tick();
+			a.pulse[1].env.tick();
+			a.noise.env.tick();
 			a.tri.clockLinear();
 		}
 		if (half) {
