@@ -98,16 +98,24 @@ void NesVentureEngine::applyLayout() {
 // The Near-Grog tray (a hold on MENU, or the menu key)
 namespace {
 
-enum { kCmdLook = 'look', kCmdScummVM = 'smvm', kCmdResume = 'resm' };
+enum { kCmdLook = 'look', kCmdFrame = 'fram', kCmdScummVM = 'smvm', kCmdResume = 'resm' };
+
+// The NES look's picture frame (neargrog_nes_frame): none (the default, the
+// biggest picture), a thin strip of the game's own frame, or all of it
+const char *frameName() {
+	const Common::String f = ConfMan.get("neargrog_nes_frame");
+	return f == "thin" ? "Thin" : f == "full" ? "Full" : "None";
+}
 
 class TrayDialog : public GUI::Dialog {
 public:
 	TrayDialog() : GUI::Dialog(0, 0, 0, 0) {
 		const Common::String labels[] = {
 			Common::String::format("Look: %s", NesUI::configLook() == NesUI::kLookDark ? "Dark" : "NES"),
+			Common::String::format("Picture frame: %s", frameName()),
 			"ScummVM menu", "Resume"
 		};
-		const uint32 cmds[] = { kCmdLook, kCmdScummVM, kCmdResume };
+		const uint32 cmds[] = { kCmdLook, kCmdFrame, kCmdScummVM, kCmdResume };
 		const int n = ARRAYSIZE(labels);
 		const int sw = g_system->getOverlayWidth(), sh = g_system->getOverlayHeight();
 		const int fh = g_gui.getFontHeight();
@@ -141,6 +149,13 @@ void NesVentureEngine::openMainMenuDialog() {
 			ConfMan.set("neargrog_look", NesUI::configLook() == NesUI::kLookDark ? "nes" : "dark");
 			ConfMan.flushToDisk();
 			applyLayout();
+			present();
+			continue;
+		}
+		if (cmd == kCmdFrame) {
+			const Common::String f = ConfMan.get("neargrog_nes_frame");
+			ConfMan.set("neargrog_nes_frame", f == "thin" ? "full" : f == "full" ? "none" : "thin");
+			ConfMan.flushToDisk();
 			present();
 			continue;
 		}

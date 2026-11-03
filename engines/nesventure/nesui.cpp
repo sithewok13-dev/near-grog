@@ -20,6 +20,7 @@
  */
 
 #include "common/config-manager.h"
+#include "common/hash-str.h"
 #include "common/system.h"
 #include "graphics/font.h"
 #include "graphics/fontman.h"
@@ -429,10 +430,16 @@ NesUI::Action NesUI::release(Common::Point p) {
 		return kNone;
 	}
 	if (_picBox.contains(p)) {
-		Common::Rect src = _map->picture;
-		if (_look == kLookDark)
+		// (taps map to the picture as drawn: with or without its frame)
+		const Common::String frame = ConfMan.get("neargrog_nes_frame");
+		Common::Rect src = _map->picture, box = _picBox;
+		if (_look == kLookDark || frame.empty() || frame == "none") {
 			src = Common::Rect(src.left + 8, src.top + 8, src.right - 9, src.bottom - 8);
-		steerTo(toNes(_picBox, src, p));
+		} else if (frame == "thin") {
+			src = Common::Rect(src.left + 8, src.top + 8, src.right - 9, src.bottom - 8);
+			box.grow(-_picBox.width() / 50);
+		}
+		steerTo(toNes(box, src, CLIP<int16>(p.x, box.left, box.right - 1) == p.x && CLIP<int16>(p.y, box.top, box.bottom - 1) == p.y ? p : Common::Point(CLIP<int16>(p.x, box.left, box.right - 1), CLIP<int16>(p.y, box.top, box.bottom - 1))));
 		return kNone;
 	}
 	for (uint i = 0; i < _verbCells.size(); i++)
@@ -753,6 +760,7 @@ uint32 NesUI::signature() const {
 	uint32 pageLen = 0;
 	for (uint i = 0; i < _page.size(); i++)
 		pageLen += _page[i].size();
+	h ^= Common::hashit(ConfMan.get("neargrog_nes_frame").c_str());
 	h ^= _history.size() * 7919 + pageLen * 31 + _scroll * 131 + (_pressButton + 1) * 977 + _holdFired * 3 + _look * 5 + _textMode * 11;
 	if (_pressButton >= 0 && !_holdFired)
 		h ^= g_system->getMillis(); // the hold ring fills
@@ -767,11 +775,21 @@ bool NesUI::draw() {
 	_drawn = true;
 	const bool dark = _look == kLookDark;
 	_out.fillRect(Common::Rect(_w, _h), dark ? rgb(12, 12, 16) : rgb(0, 0, 0));
-	// The picture: with the game's frame, or alone with round corners in Dark
-	Common::Rect src = _map->picture;
-	if (dark)
-		src = Common::Rect(src.left + 8, src.top + 8, src.right - 9, src.bottom - 8);
-	blitNes(_nes->screen(), src, _picBox);
+	// The picture: alone (bigger) in Dark and by default in the game's look;
+	// with a thin strip of the game's own frame, or the whole frame, if
+	// chosen (neargrog_nes_frame: none / thin / full)
+	const Common::Rect inner(_map->picture.left + 8, _map->picture.top + 8, _map->picture.right - 9, _map->picture.bottom - 8);
+	const Common::String frame = ConfMan.get("neargrog_nes_frame");
+	if (dark || frame.empty() || frame == "none") {
+		blitNes(_nes->screen(), inner, _picBox);
+	} else if (frame == "thin") {
+		blitNes(_nes->screen(), _map->picture, _picBox);
+		Common::Rect in = _picBox;
+		in.grow(-_picBox.width() / 50);
+		blitNes(_nes->screen(), inner, in);
+	} else {
+		blitNes(_nes->screen(), _map->picture, _picBox);
+	}
 	drawButtons();
 	drawVerbs();
 	drawText();
