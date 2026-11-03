@@ -25,11 +25,13 @@
 #include "audio/audiostream.h"
 #include "audio/mixer.h"
 #include "engines/engine.h"
+#include "graphics/pixelformat.h"
 #include "nesventure/detection.h"
 
 namespace NesVenture {
 
 class Nes;
+class NesUI;
 
 /**
  * Near-Grog: Kemco-Seika's NES versions of the MacVentures, run on
@@ -43,6 +45,11 @@ public:
 
 	Common::Error run() override;
 	bool hasFeature(EngineFeature f) const override;
+	bool canLoadGameStateCurrently(Common::U32String *msg = nullptr) override { return _nes != nullptr; }
+	bool canSaveGameStateCurrently(Common::U32String *msg = nullptr) override { return _nes != nullptr; }
+	Common::Error saveGameStream(Common::WriteStream *stream, bool isAutosave = false) override;
+	Common::Error loadGameStream(Common::SeekableReadStream *stream) override;
+	void openMainMenuDialog() override; // the Near-Grog tray
 
 private:
 	const NesGameDescription *_desc;
@@ -50,6 +57,8 @@ private:
 	Audio::QueuingAudioStream *_audio;
 	Audio::SoundHandle _audioHandle;
 	uint8 _keys; // controller buttons held on the keyboard / a game controller
+	NesUI *_ui;  // the phone layouts
+	Graphics::PixelFormat _format;
 
 	bool loadCartridge();
 	Common::String batteryName() const;
@@ -57,6 +66,9 @@ private:
 	void saveBattery();
 	bool handleEvents();
 	void present();
+	void applyLayout();
+	void quickSave();
+	void quickLoad();
 };
 
 } // End of namespace NesVenture

@@ -31,20 +31,123 @@
 #include "graphics/paletteman.h"
 
 #include "nesventure/nes.h"
+#include "nesventure/nesui.h"
 #include "nesventure/nesventure.h"
+#include "gui/dialog.h"
+#include "gui/gui-manager.h"
+#include "gui/widget.h"
 
 namespace NesVenture {
 
 NesVentureEngine::NesVentureEngine(OSystem *syst, const NesGameDescription *desc) : Engine(syst), _desc(desc), _nes(nullptr),
-		_audio(nullptr), _keys(0) {
+		_audio(nullptr), _keys(0), _ui(nullptr) {
 }
 
 NesVentureEngine::~NesVentureEngine() {
+	delete _ui;
 	delete _nes;
 }
 
 bool NesVentureEngine::hasFeature(EngineFeature f) const {
-	return f == kSupportsReturnToLauncher;
+	return f == kSupportsReturnToLauncher || f == kSupportsLoadingDuringRuntime || f == kSupportsSavingDuringRuntime;
+}
+
+// Save states: the whole NES (the games' own saves stay in battery RAM)
+Common::Error NesVentureEngine::saveGameStream(Common::WriteStream *stream, bool isAutosave) {
+	_nes->saveState(*stream);
+	return Common::kNoError;
+}
+
+Common::Error NesVentureEngine::loadGameStream(Common::SeekableReadStream *stream) {
+	return _nes->loadState(*stream) ? Common::kNoError : Common::kReadingFailed;
+}
+
+void NesVentureEngine::quickSave() {
+	Common::Error err = saveGameState(99, "Quick save");
+	g_system->displayMessageOnOSD(Common::U32String(err.getCode() == Common::kNoError ? "Saved" : "Could not save"));
+}
+
+void NesVentureEngine::quickLoad() {
+	if (!_saveFileMan->exists(getSaveStateName(99))) {
+		g_system->displayMessageOnOSD(Common::U32String("No quick save yet"));
+		return;
+	}
+	Common::Error err = loadGameState(99);
+	g_system->displayMessageOnOSD(Common::U32String(err.getCode() == Common::kNoError ? "Loaded" : "Could not load"));
+}
+
+// The phone layouts in true colour, the shape of the screen
+void NesVentureEngine::applyLayout() {
+	bool found = false;
+	Common::List<Graphics::PixelFormat> formats = g_system->getSupportedFormats();
+	for (Common::List<Graphics::PixelFormat>::const_iterator it = formats.begin(); it != formats.end(); ++it)
+		if (it->bytesPerPixel == 4) {
+			_format = *it;
+			found = true;
+			break;
+		}
+	if (!found)
+		_format = Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0);
+	const bool portrait = NesUI::portraitScreen();
+	const int w = portrait ? 646 : 1400, h = portrait ? 1400 : 646;
+	if (g_system->getWidth() != w || g_system->getHeight() != h || g_system->getScreenFormat() != _format)
+		initGraphics(w, h, &_format);
+	_ui->setup(w, h, portrait, NesUI::configLook(), _format);
+}
+
+// The Near-Grog tray (a hold on MENU, or the menu key)
+namespace {
+
+enum { kCmdLook = 'look', kCmdScummVM = 'smvm', kCmdResume = 'resm' };
+
+class TrayDialog : public GUI::Dialog {
+public:
+	TrayDialog() : GUI::Dialog(0, 0, 0, 0) {
+		const Common::String labels[] = {
+			Common::String::format("Look: %s", NesUI::configLook() == NesUI::kLookDark ? "Dark" : "NES"),
+			"ScummVM menu", "Resume"
+		};
+		const uint32 cmds[] = { kCmdLook, kCmdScummVM, kCmdResume };
+		const int n = ARRAYSIZE(labels);
+		const int sw = g_system->getOverlayWidth(), sh = g_system->getOverlayHeight();
+		const int fh = g_gui.getFontHeight();
+		const int bh = MAX(fh * 2, MIN(sw, sh) / 8), gap = bh / 4, margin = fh;
+		const int bw = MIN(MAX(MIN(sw, sh) / 2, fh * 12), sw - 40);
+		_w = margin * 2 + bw;
+		_h = margin * 2 + fh * 2 + n * (bh + gap);
+		_x = (sw - _w) / 2;
+		_y = MAX<int>(10, (sh - _h) / 2);
+		new GUI::StaticTextWidget(this, margin, margin, bw, fh + 4, Common::U32String("Near-Grog"), Graphics::kTextAlignCenter);
+		for (int i = 0; i < n; i++)
+			new GUI::ButtonWidget(this, margin, margin + fh * 2 + i * (bh + gap), bw, bh, Common::U32String(labels[i]), Common::U32String(), cmds[i]);
+	}
+	void handleCommand(GUI::CommandSender *sender, uint32 cmd, uint32 data) override {
+		setResult(cmd);
+		close();
+	}
+};
+
+} // End of anonymous namespace
+
+void NesVentureEngine::openMainMenuDialog() {
+	while (true) {
+		uint32 cmd;
+		{
+			PauseToken pause = pauseEngine();
+			TrayDialog tray;
+			cmd = tray.runModal();
+		}
+		if (cmd == kCmdLook) {
+			ConfMan.set("neargrog_look", NesUI::configLook() == NesUI::kLookDark ? "nes" : "dark");
+			ConfMan.flushToDisk();
+			applyLayout();
+			present();
+			continue;
+		}
+		if (cmd == kCmdScummVM)
+			Engine::openMainMenuDialog();
+		return;
+	}
 }
 
 // The cartridge: the file detection named, or any .nes file in the game's
@@ -100,6 +203,26 @@ bool NesVentureEngine::handleEvents() {
 		case Common::EVENT_QUIT:
 		case Common::EVENT_RETURN_TO_LAUNCHER:
 			return false;
+		case Common::EVENT_SCREEN_CHANGED:
+			applyLayout();
+			break;
+		case Common::EVENT_LBUTTONDOWN:
+			_ui->press(ev.mouse);
+			break;
+		case Common::EVENT_LBUTTONUP:
+			switch (_ui->release(ev.mouse)) {
+			case NesUI::kSaveDialog: saveGameDialog(); break;
+			case NesUI::kLoadDialog: loadGameDialog(); break;
+			case NesUI::kTray: openMainMenuDialog(); break;
+			default: break;
+			}
+			break;
+		case Common::EVENT_WHEELUP:
+			_ui->scroll(1);
+			break;
+		case Common::EVENT_WHEELDOWN:
+			_ui->scroll(-1);
+			break;
 		case Common::EVENT_KEYDOWN:
 		case Common::EVENT_KEYUP:
 			switch (ev.kbd.keycode) {
@@ -142,7 +265,10 @@ bool NesVentureEngine::handleEvents() {
 }
 
 void NesVentureEngine::present() {
-	g_system->copyRectToScreen(_nes->screen(), Nes::kScreenW, 0, 0, Nes::kScreenW, Nes::kScreenH);
+	if (!_ui->draw())
+		return;
+	const Graphics::ManagedSurface &o = _ui->output();
+	g_system->copyRectToScreen(o.getPixels(), o.pitch, 0, 0, o.w, o.h);
 	g_system->updateScreen();
 }
 
@@ -153,8 +279,8 @@ Common::Error NesVentureEngine::run() {
 	loadBattery();
 	_nes->reset();
 
-	initGraphics(Nes::kScreenW, Nes::kScreenH);
-	g_system->getPaletteManager()->setPalette(Nes::kPalette, 0, 64);
+	_ui = new NesUI(_nes, _desc->gameId);
+	applyLayout();
 
 	_audio = Audio::makeQueuingAudioStream(Nes::kSampleRate, false);
 	_mixer->playStream(Audio::Mixer::kMusicSoundType, &_audioHandle, _audio);
@@ -164,8 +290,18 @@ Common::Error NesVentureEngine::run() {
 	double next = g_system->getMillis();
 	uint32 lastBattery = g_system->getMillis();
 	while (handleEvents()) {
-		_nes->buttons = _keys;
-		_nes->runFrame();
+		switch (_ui->tick()) {
+		case NesUI::kQuickSave: quickSave(); break;
+		case NesUI::kQuickLoad: quickLoad(); break;
+		default: break;
+		}
+		// While the layout steers the pointer, the NES runs four frames to one
+		const int frames = _ui->steering() ? 4 : 1;
+		for (int i = 0; i < frames; i++) {
+			_nes->buttons = _keys | _ui->buttons();
+			_nes->runFrame();
+			_ui->update();
+		}
 		if (!_nes->audio.empty() && _audio->numQueuedStreams() < 8) {
 			const uint bytes = _nes->audio.size() * 2;
 			int16 *buf = (int16 *)malloc(bytes);

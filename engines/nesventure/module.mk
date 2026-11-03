@@ -2,6 +2,7 @@ MODULE := engines/nesventure
 
 MODULE_OBJS = \
 	cpu6502.o \
+	nesui.o \
 	metaengine.o \
 	nes.o \
 	nes_apu.o \

@@ -52,6 +52,7 @@ Nes::Nes() : buttons(0), batteryDirty(false), cpu(this), _chrRam(false), _batter
 	memset(_palRam, 0, sizeof(_palRam));
 	memset(_oam, 0, sizeof(_oam));
 	memset(_screen, 0, sizeof(_screen));
+	memset(_lineNt, 0, sizeof(_lineNt));
 	apuInit();
 }
 
@@ -507,6 +508,7 @@ void Nes::runFrame() {
 	for (_line = 0; _line < 262; _line++) {
 		const bool rendering = _mask & 0x18;
 		if (_line < kScreenH) {
+			_lineNt[_line] = (_v >> 10) & 3;
 			if (rendering)
 				renderLine(_line);
 			else
@@ -559,6 +561,52 @@ void Nes::runFrame() {
 			mmc3Clock();
 		}
 	}
+}
+
+// Save states: everything but the cartridge's ROM
+
+void Nes::saveState(Common::WriteStream &out) {
+	out.writeUint32BE(MKTAG('N', 'E', 'S', '1'));
+	out.write(_ram, sizeof(_ram));
+	out.write(_prgRam, sizeof(_prgRam));
+	out.write(_vram, sizeof(_vram));
+	out.write(_palRam, sizeof(_palRam));
+	out.write(_oam, sizeof(_oam));
+	out.writeByte(_chrRam ? 1 : 0);
+	if (_chrRam)
+		out.write(_chr.data(), _chr.size());
+	out.writeUint16LE(cpu.pc);
+	out.writeByte(cpu.a); out.writeByte(cpu.x); out.writeByte(cpu.y); out.writeByte(cpu.sp); out.writeByte(cpu.p);
+	out.writeByte(_ctrl); out.writeByte(_mask); out.writeByte(_status); out.writeByte(_oamAddr);
+	out.writeByte(_readBuf); out.writeByte(_fineX); out.writeUint16LE(_v); out.writeUint16LE(_t); out.writeByte(_w);
+	out.writeByte(_mirror);
+	out.writeByte(_mmc1Shift); out.writeByte(_mmc1Count); out.writeByte(_mmc1Ctrl);
+	out.writeByte(_mmc1Chr0); out.writeByte(_mmc1Chr1); out.writeByte(_mmc1Prg);
+	out.writeByte(_mmc3Select); out.write(_mmc3Regs, 8); out.writeByte(_mmc3Latch); out.writeByte(_mmc3Counter);
+	out.writeByte(_mmc3Reload); out.writeByte(_mmc3IrqOn); out.writeByte(_mmc3Irq);
+}
+
+bool Nes::loadState(Common::SeekableReadStream &in) {
+	if (in.readUint32BE() != MKTAG('N', 'E', 'S', '1'))
+		return false;
+	in.read(_ram, sizeof(_ram));
+	in.read(_prgRam, sizeof(_prgRam));
+	in.read(_vram, sizeof(_vram));
+	in.read(_palRam, sizeof(_palRam));
+	in.read(_oam, sizeof(_oam));
+	if (in.readByte() && _chrRam)
+		in.read(_chr.data(), _chr.size());
+	cpu.pc = in.readUint16LE();
+	cpu.a = in.readByte(); cpu.x = in.readByte(); cpu.y = in.readByte(); cpu.sp = in.readByte(); cpu.p = in.readByte();
+	_ctrl = in.readByte(); _mask = in.readByte(); _status = in.readByte(); _oamAddr = in.readByte();
+	_readBuf = in.readByte(); _fineX = in.readByte(); _v = in.readUint16LE(); _t = in.readUint16LE(); _w = in.readByte();
+	_mirror = (Mirroring)in.readByte();
+	_mmc1Shift = in.readByte(); _mmc1Count = in.readByte(); _mmc1Ctrl = in.readByte();
+	_mmc1Chr0 = in.readByte(); _mmc1Chr1 = in.readByte(); _mmc1Prg = in.readByte();
+	_mmc3Select = in.readByte(); in.read(_mmc3Regs, 8); _mmc3Latch = in.readByte(); _mmc3Counter = in.readByte();
+	_mmc3Reload = in.readByte(); _mmc3IrqOn = in.readByte(); _mmc3Irq = in.readByte();
+	updateMaps(); // (MMC3 keeps the mirroring loaded above; MMC1's comes from its control register)
+	return !in.err();
 }
 
 } // End of namespace NesVenture

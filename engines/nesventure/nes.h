@@ -23,6 +23,7 @@
 #define NESVENTURE_NES_H
 
 #include "common/array.h"
+#include "common/stream.h"
 #include "nesventure/cpu6502.h"
 
 namespace NesVenture {
@@ -67,8 +68,16 @@ public:
 	/** Machine memory, for the layouts to read the game's state. */
 	uint8 peek(uint16 addr) { return addr < 0x2000 ? _ram[addr & 0x7FF] : addr >= 0x6000 && addr < 0x8000 ? _prgRam[addr - 0x6000] : 0; }
 	void poke(uint16 addr, uint8 v) { if (addr < 0x2000) _ram[addr & 0x7FF] = v; }
-	/** The name tables as the PPU sees them (for reading text off screen). */
+	/** The name tables, patterns and palette as the PPU sees them. */
 	uint8 ppuPeek(uint16 addr) { return ppuRead(addr); }
+	/** Which name table (0-3) line y of the last frame was drawn from. */
+	int lineTable(int y) const { return _lineNt[y]; }
+	/** The background's pattern table (0x0000 or 0x1000). */
+	uint16 bgPatterns() const { return (_ctrl & 0x10) ? 0x1000 : 0; }
+
+	/** The whole machine, for save states. */
+	void saveState(Common::WriteStream &out);
+	bool loadState(Common::SeekableReadStream &in);
 
 	// Bus
 	uint8 read(uint16 addr) override;
@@ -112,6 +121,7 @@ private:
 	bool _w, _nmiPending;
 	int _line;
 	byte _screen[kScreenW * kScreenH];
+	byte _lineNt[kScreenH];
 	uint8 ppuRead(uint16 addr);
 	void ppuWrite(uint16 addr, uint8 v);
 	uint16 ntAddr(uint16 addr) const;
