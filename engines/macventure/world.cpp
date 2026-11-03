@@ -298,6 +298,31 @@ void World::loadGameFrom(Common::InSaveFile *file) {
 	calculateObjectRelations();
 }
 
+// Near-Grog cheats (neargrog_cheats.cpp)
+void World::cheatValues(Common::Array<uint16> &out) {
+	out.clear();
+	const Common::Array<AttributeGroup> &groups = _saveGame->getGroups();
+	for (uint g = 0; g < groups.size(); g++)
+		for (uint o = 0; o < groups[g].size(); o++)
+			out.push_back(groups[g][o]);
+	const Common::Array<uint16> &globals = _saveGame->getGlobals();
+	for (uint i = 0; i < globals.size(); i++)
+		out.push_back(globals[i]);
+}
+
+void World::cheatSetValue(uint index, uint16 value) {
+	const Common::Array<AttributeGroup> &groups = _saveGame->getGroups();
+	for (uint g = 0; g < groups.size(); g++) {
+		if (index < groups[g].size()) {
+			_saveGame->setAttr(g, index, value);
+			return;
+		}
+		index -= groups[g].size();
+	}
+	if (index < _saveGame->getGlobals().size())
+		_saveGame->setGlobal(index, value);
+}
+
 void World::saveGameInto(Common::OutSaveFile *file) {
 	_saveGame->saveInto(_engine, file);
 }

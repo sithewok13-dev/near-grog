@@ -27,6 +27,7 @@
 #include "gui/widget.h"
 
 #include "macventure/macventure.h"
+#include "common/config-manager.h"
 #include "macventure/modernui.h"
 #include "macventure/neargrog_tray.h"
 
@@ -46,7 +47,8 @@ enum {
 	kCmdLayout = 'layo',
 	kCmdLook = 'look',
 	kCmdOpacity = 'opac',
-	kCmdScummVM = 'smvm'
+	kCmdScummVM = 'smvm',
+	kCmdCheats = 'chea'
 };
 
 class TrayDialog : public GUI::Dialog {
@@ -56,10 +58,11 @@ public:
 			Common::String::format("Layout: %s", ModernUI::layoutName(ModernUI::configLayout())),
 			Common::String::format("Look: %s", ModernUI::lookName(ModernUI::configLook())),
 			Common::String::format("Button opacity: %d%%", ModernUI::configOpacity()),
+			MacVentureEngine::cheatsOn() ? "Cheats: On (no timers, undo death)" : "Cheats: Off",
 			"ScummVM menu",
 			"Resume"
 		};
-		const uint32 cmds[] = { kCmdLayout, kCmdLook, kCmdOpacity, kCmdScummVM, kCmdResume };
+		const uint32 cmds[] = { kCmdLayout, kCmdLook, kCmdOpacity, kCmdCheats, kCmdScummVM, kCmdResume };
 		const int n = ARRAYSIZE(labels);
 
 		// Sized from the screen and the theme's font, so the buttons are big
@@ -144,6 +147,10 @@ void NearGrogTray::open(MacVentureEngine *vm) {
 		case kCmdScummVM:
 			vm->Engine::openMainMenuDialog();
 			return;
+		case kCmdCheats:
+			ConfMan.setBool("neargrog_cheats", !MacVentureEngine::cheatsOn());
+			ConfMan.flushToDisk();
+			continue; // the tray comes back showing the new state
 		default:
 			return;
 		}

@@ -121,6 +121,10 @@ public:
 	void loadGameFrom(Common::InSaveFile *file);
 	void saveGameInto(Common::OutSaveFile *file);
 
+	// Near-Grog cheats: every attribute of every object, then the globals
+	void cheatValues(Common::Array<uint16> &out);
+	void cheatSetValue(uint index, uint16 value);
+
 private:
 	bool intersects(ObjID objID, Common::Rect rect);
 

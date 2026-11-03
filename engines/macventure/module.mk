@@ -11,6 +11,7 @@ MODULE_OBJS := \
 	macventure.o \
 	metaengine.o \
 	modernui.o \
+	neargrog_cheats.o \
 	neargrog_tray.o \
 	prebuilt_dialogs.o \
 	saveload.o \

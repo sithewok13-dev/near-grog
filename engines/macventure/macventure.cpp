@@ -78,6 +78,7 @@ MacVentureEngine::MacVentureEngine(OSystem *syst, const ADGameDescription *gameD
 
 	_dataBundle = nullptr;
 	_winLoader = nullptr;
+	_cheatUndoPending = false; // Near-Grog
 
 	_nextFrameTime = 0;
 
@@ -212,16 +213,20 @@ Common::Error MacVentureEngine::run() {
 					updateState(false);
 
 				if (_cmdReady || _halted) {
+					if (!_halted)
+						cheatBeforeCommand(); // Near-Grog
 					_halted = false;
 					if (runScriptEngine()) {
 						_halted = true;
 						_paused = true;
 					} else {
 						_paused = false;
+						cheatAfterCommand(); // Near-Grog
 						updateState(true);
 						updateControls();
 						updateExits();
 					}
+					cheatUndoIfPending(); // Near-Grog
 				}
 
 				if (_gameState == kGameStateLosing) {
@@ -401,6 +406,8 @@ void MacVentureEngine::winGame() {
 }
 
 void MacVentureEngine::loseGame() {
+	if (cheatOnDeath()) // Near-Grog: put back to before the fatal move
+		return;
 	_gui->showPrebuiltDialog(kLoseGameDialog);
 	_paused = true;
 	//_gameState = kGameStateLosing;

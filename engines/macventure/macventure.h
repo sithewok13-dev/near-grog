@@ -249,6 +249,12 @@ public:
 	void applyLayout();
 	void openMainMenuDialog() override;
 	Gui *getGui() { return _gui; }
+	// Near-Grog cheats (neargrog_cheats.cpp): countdowns frozen, deaths undone
+	static bool cheatsOn();
+	void cheatBeforeCommand();
+	void cheatAfterCommand();
+	bool cheatOnDeath();
+	void cheatUndoIfPending();
 
 	void requestQuit();
 	void requestUnpause();
@@ -394,6 +400,10 @@ private: // Attributes
 	Common::FSNode _gamePath;
 	Common::Archive *_dataBundle;
 	WinVersionLoader *_winLoader; // Near-Grog
+	Common::Array<uint16> _cheatPrev;   // Near-Grog cheats: the values after the last command
+	Common::Array<byte> _cheatStreak;   // turns in a row each value has gone down by one
+	Common::Array<byte> _cheatUndo;     // the game as it was before this command
+	bool _cheatUndoPending;
 
 	// Engine state
 	GameState _gameState;
