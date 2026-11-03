@@ -92,6 +92,8 @@ ModernLayout ModernUI::configLayout() {
 	Common::String s = ConfMan.get("neargrog_layout");
 	if (s == "e")
 		return kLayoutE;
+	if (s == "e2")
+		return kLayoutE2;
 	if (s == "original")
 		return kLayoutOriginal;
 	return kLayoutC2;
@@ -107,7 +109,7 @@ int ModernUI::configOpacity() {
 }
 
 void ModernUI::setConfig(ModernLayout layout, ModernLook look, int opacity) {
-	static const char *const kLayouts[] = { "c2", "e", "original" };
+	static const char *const kLayouts[] = { "c2", "e", "original", "e2" };
 	ConfMan.set("neargrog_layout", kLayouts[layout]);
 	ConfMan.set("neargrog_look", look == kLookDark ? "dark" : "win31");
 	ConfMan.setInt("neargrog_button_opacity", opacity);
@@ -117,7 +119,9 @@ void ModernUI::setConfig(ModernLayout layout, ModernLook look, int opacity) {
 const char *ModernUI::layoutName(ModernLayout layout) {
 	switch (layout) {
 	case kLayoutE:
-		return "E";
+		return "E1";
+	case kLayoutE2:
+		return "E2";
 	case kLayoutOriginal:
 		return "Original";
 	default:
@@ -200,8 +204,35 @@ void ModernUI::doLayout() {
 		_shelfBox = Common::Rect(L, y, R, _h - 40);
 		_textMax = Common::Rect(L, _textNormal.top, R, _h - 40);
 		_itemSize = Common::Point(34, 60);
+	} else if (_layout == kLayoutE2) {
+		// E2: E with the picture a sixth smaller, so the column beside it
+		// gets full-size buttons, verbs and text
+		const int right = _w - 40;
+		const int rh = (_h - 14 - 12 - 42) * 5 / 6;
+		const int rw = rh * 16 / 10;
+		const int top = (_h - rh - 42) / 2;
+		_roomBox = Common::Rect(40, top, 40 + rw + 10, top + rh + 42);
+		_roomPic = dark ? _roomBox : Common::Rect(_roomBox.left + 5, _roomBox.top + 37, _roomBox.right - 5, _roomBox.bottom - 5);
+		_roomTitleFont = dark ? 26 : 22;
+		const int vx = 40 + rw + 30;
+		_roundButtons = true;
+		for (int i = 0; i < 3; i++) {
+			int cx = right - 34 - (2 - i) * 92;
+			_buttons[i] = Common::Rect(cx - 34, 48 - 34, cx + 34, 48 + 34);
+		}
+		_verbH = 60;
+		_verbGap = 9;
+		_verbFont = 18;
+		_verbArea = Common::Rect(vx, 96, right, 96 + 3 * _verbH + 2 * _verbGap);
+		const int shelfTop = _h - 12 - 140;
+		_textNormal = Common::Rect(vx, _verbArea.bottom + 10, right, shelfTop - 8);
+		_textMax = Common::Rect(vx, 92, right, shelfTop - 8);
+		_textFont = 17;
+		_titleFont = 15;
+		_shelfBox = Common::Rect(vx, shelfTop, right, _h - 12);
+		_itemSize = Common::Point(30, 54);
 	} else if (_layout == kLayoutE) {
-		// The picture full height on the left; buttons, verbs, text and
+		// E1: the picture full height on the left; buttons, verbs, text and
 		// inventory in a column on the right
 		const int right = _w - 40;
 		const int rh = _h - 14 - 12 - 42;
@@ -256,7 +287,7 @@ void ModernUI::doLayout() {
 	// The shelf: the items on the left, the exits at the right end
 	Common::Rect inner = dark ? Common::Rect(_shelfBox.left + 4, _shelfBox.top + 30, _shelfBox.right - 4, _shelfBox.bottom - 4)
 		: Common::Rect(_shelfBox.left + 5, _shelfBox.top + 37, _shelfBox.right - 5, _shelfBox.bottom - 5);
-	const int exitsW = _portrait ? 128 : (_layout == kLayoutE ? 112 : 128);
+	const int exitsW = _portrait ? 128 : ((_layout == kLayoutE || _layout == kLayoutE2) ? 112 : 128);
 	_shelfItems = Common::Rect(inner.left, inner.top, inner.right - exitsW, inner.bottom);
 	_shelfExits = Common::Rect(inner.right - exitsW + 8, inner.top, inner.right, inner.bottom);
 	const int gy = 10;

@@ -126,7 +126,14 @@ void NearGrogTray::open(MacVentureEngine *vm) {
 		int opacity = ModernUI::configOpacity();
 		switch (cmd) {
 		case kCmdLayout:
-			layout = (ModernLayout)((layout + 1) % 3);
+			{
+				// C2, E1, E2, Original, round again
+				static const ModernLayout kOrder[] = { kLayoutC2, kLayoutE, kLayoutE2, kLayoutOriginal };
+				int k = 0;
+				while (k < 4 && kOrder[k] != layout)
+					k++;
+				layout = kOrder[(k + 1) % 4];
+			}
 			break;
 		case kCmdLook:
 			look = look == kLookWin31 ? kLookDark : kLookWin31;

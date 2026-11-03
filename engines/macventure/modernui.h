@@ -56,7 +56,8 @@ typedef uint32 ObjID;
 enum ModernLayout {
 	kLayoutC2 = 0,
 	kLayoutE = 1,
-	kLayoutOriginal = 2
+	kLayoutOriginal = 2,
+	kLayoutE2 = 3 // E with a smaller picture and full-size buttons
 };
 
 enum ModernLook {
