@@ -73,7 +73,7 @@ bool isBlank(byte t) { return t == 0x7E || t == 0x7F || t == 0xDE || t == 0xDF; 
 
 NesUI::NesUI(Nes *nes, GameId game) : _nes(nes), _game(game), _map(&kMaps[game]), _w(0), _h(0), _portrait(false),
 		_look(kLookNes), _textMode(false), _haveSnapshot(false), _textFg(0x0F), _textBg(0x30), _haveTextColours(false), _verbPaper(0x30), _commandFrames(0),
-		_scroll(0), _pad(0), _continueFrames(0), _pressButton(-1), _pressTime(0), _holdFired(false), _lastSignature(0), _drawn(false), _fullMode(false), _padHeld(0), _padTouch(-1), _padLast(0), _padLinger(0) {
+		_scroll(0), _pad(0), _continueFrames(0), _pressButton(-1), _pressTime(0), _holdFired(false), _lastSignature(0), _drawn(false), _fullMode(false), _padHeld(0), _padTouch(-1), _padLast(0), _padLinger(0), _padShown(false), _fullStartTime(0), _fullTouching(false), _fullConsumed(false), _tapWait(0), _tapSig(0) {
 	memset(_snapshot, 0, sizeof(_snapshot));
 	memset(_pal, 0, sizeof(_pal));
 	_goal.active = false;
@@ -176,6 +176,9 @@ void NesUI::layout() {
 		_padRects[7] = Common::Rect(_w / 2 + 10, cy + 200, _w / 2 + 210, cy + 260);
 		_fullMenu = Common::Rect(_w - 24 - 140, 20, _w - 24, 70);
 	}
+	_fullBig = _fullBox;
+	if (_portrait)
+		_fullBig.moveTo(_fullBox.left, (_h - _fullBox.height()) / 2);
 
 	// The verb cells: three across, the extras in a row of their own
 	_verbCells.clear();
@@ -211,6 +214,18 @@ Common::Rect NesUI::itemRect(const NesItem &it) const {
 	return Common::Rect(it.col * 8, rowY(it.row), (it.col + tiles) * 8, rowY(it.row) + 8);
 }
 
+uint32 NesUI::tableSignature() {
+	uint32 h = 2166136261u;
+	for (int a = 0x2000; a < 0x2800; a++)
+		h = (h ^ _nes->ppuPeek(a)) * 16777619u;
+	return h;
+}
+
+void NesUI::padPress(uint8 bits) {
+	_padLast = bits;
+	_padLinger = 4;
+}
+
 // The play screen has the inventory's title ("GOODS", "PROPERTY") at the
 // top of the right panel; the title, file and intro screens don't
 bool NesUI::playScreen() {
@@ -221,12 +236,19 @@ bool NesUI::playScreen() {
 }
 
 void NesUI::update() {
+	const bool wasFull = _fullMode;
 	_fullMode = !playScreen();
+	if (wasFull && !_fullMode)
+		_padShown = false;
 	if (_fullMode) {
 		// A tap is held for a few frames, so a quick one still counts
 		_pad = _padHeld | (_padLinger ? _padLast : 0);
 		if (_padLinger)
 			_padLinger--;
+		// A tap pressed A; if the screen didn't change (a title screen),
+		// it wanted START
+		if (_tapWait && !_padLinger && --_tapWait == 0 && tableSignature() == _tapSig)
+			padPress(Nes::kStart);
 		_goal.active = false;
 		return;
 	}
@@ -449,19 +471,23 @@ Common::Point NesUI::toNes(const Common::Rect &box, const Common::Rect &src, Com
 
 NesUI::Action NesUI::press(Common::Point p) {
 	if (_fullMode) {
-		static const uint8 kBits[8] = { Nes::kUp, Nes::kDown, Nes::kLeft, Nes::kRight, Nes::kA, Nes::kB, Nes::kStart, Nes::kSelect };
+		// Title and menu screens: taps and swipes - or, once a long press has
+		// shown it, the pad
+		_fullStart = p;
+		_fullStartTime = g_system->getMillis();
+		_fullTouching = true;
+		_fullConsumed = false;
 		_padTouch = -1;
-		for (int i = 0; i < 8; i++) {
-			Common::Rect r = _padRects[i];
-			r.grow(10);
-			if (r.contains(p)) {
-				_padTouch = i;
-				_padHeld = kBits[i];
+		if (_padShown) {
+			static const uint8 kBits[8] = { Nes::kUp, Nes::kDown, Nes::kLeft, Nes::kRight, Nes::kA, Nes::kB, Nes::kStart, Nes::kSelect };
+			for (int i = 0; i < 8; i++) {
+				Common::Rect r = _padRects[i];
+				r.grow(10);
+				if (r.contains(p)) {
+					_padTouch = i;
+					_padHeld = kBits[i];
+				}
 			}
-		}
-		if (_padTouch < 0 && _fullBox.contains(p)) { // a tap on the screen: START
-			_padTouch = 6;
-			_padHeld = Nes::kStart;
 		}
 		_pressButton = -1;
 		return kNone;
@@ -477,6 +503,11 @@ NesUI::Action NesUI::press(Common::Point p) {
 }
 
 NesUI::Action NesUI::tick() {
+	if (_fullMode && _fullTouching && !_fullConsumed && !_padShown && g_system->getMillis() - _fullStartTime > 600) {
+		_padShown = true;
+		_fullConsumed = true;
+		return kNone;
+	}
 	if (_pressButton < 0 || _holdFired || g_system->getMillis() - _pressTime < 500)
 		return kNone;
 	_holdFired = true;
@@ -485,13 +516,32 @@ NesUI::Action NesUI::tick() {
 
 NesUI::Action NesUI::release(Common::Point p) {
 	if (_fullMode) {
-		if (_padHeld) {
-			_padLast = _padHeld;
-			_padLinger = 4;
+		_fullTouching = false;
+		if (_fullMenu.contains(p) && _fullMenu.contains(_fullStart))
+			return kTray;
+		if (_padHeld) { // a pad button
+			padPress(_padHeld);
+			_padHeld = 0;
+			_padTouch = -1;
+			return kNone;
 		}
-		_padHeld = 0;
-		_padTouch = -1;
-		return _fullMenu.contains(p) ? kTray : kNone;
+		if (_fullConsumed) // the long press that showed the pad
+			return kNone;
+		const int dx = p.x - _fullStart.x, dy = p.y - _fullStart.y;
+		if (ABS(dy) > 40 && ABS(dy) > ABS(dx))
+			padPress(dy < 0 ? Nes::kUp : Nes::kDown);
+		else if (dx < -40)
+			padPress(Nes::kB);
+		else if (dx > 40)
+			padPress(Nes::kRight);
+		else if (_padShown)
+			_padShown = false; // a tap off the pad puts it away
+		else {
+			padPress(Nes::kA);
+			_tapWait = 30;
+			_tapSig = tableSignature();
+		}
+		return kNone;
 	}
 	const int button = _pressButton;
 	_pressButton = -1;
@@ -832,7 +882,13 @@ void NesUI::drawShelf() {
 void NesUI::drawFull() {
 	const bool dark = _look == kLookDark;
 	_out.fillRect(Common::Rect(_w, _h), dark ? rgb(12, 12, 16) : rgb(0, 0, 0));
-	blitNes(_nes->screen(), Common::Rect(0, 0, 256, 240), _fullBox);
+	blitNes(_nes->screen(), Common::Rect(0, 0, 256, 240), _padShown ? _fullBox : _fullBig);
+	const uint32 fill0 = rgb(40, 40, 48), edge0 = rgb(200, 200, 210);
+	roundRect(_fullMenu, 14, fill0, edge0);
+	const Graphics::Font *mf = font(16, true, false);
+	text("MENU", _fullMenu.left, _fullMenu.top + (_fullMenu.height() - (mf ? mf->getFontHeight() : 16)) / 2, _fullMenu.width(), rgb(255, 255, 255), mf, true);
+	if (!_padShown)
+		return;
 	static const char *const kLabels[8] = { "", "", "", "", "A", "B", "START", "SELECT" };
 	const uint32 fill = rgb(40, 40, 48), edge = rgb(200, 200, 210), lit = rgb(60, 120, 200);
 	for (int i = 0; i < 8; i++) {
@@ -854,9 +910,6 @@ void NesUI::drawFull() {
 			}
 		}
 	}
-	roundRect(_fullMenu, 14, fill, edge);
-	const Graphics::Font *f = font(16, true, false);
-	text("MENU", _fullMenu.left, _fullMenu.top + (_fullMenu.height() - (f ? f->getFontHeight() : 16)) / 2, _fullMenu.width(), rgb(255, 255, 255), f, true);
 }
 
 uint32 NesUI::signature() const {
@@ -868,7 +921,7 @@ uint32 NesUI::signature() const {
 	for (uint i = 0; i < _page.size(); i++)
 		pageLen += _page[i].size();
 	h ^= Common::hashit(ConfMan.get("neargrog_nes_frame").c_str());
-	h ^= _fullMode * 104729 + (_padTouch + 2) * 7;
+	h ^= _fullMode * 104729 + (_padTouch + 2) * 7 + _padShown * 13;
 	h ^= _history.size() * 7919 + pageLen * 31 + _scroll * 131 + (_pressButton + 1) * 977 + _holdFired * 3 + _look * 5 + _textMode * 11;
 	if (_pressButton >= 0 && !_holdFired)
 		h ^= g_system->getMillis(); // the hold ring fills

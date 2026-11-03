@@ -133,6 +133,15 @@ private:
 	Common::Rect _fullBox, _fullMenu, _padRects[8];
 	uint8 _padHeld, _padLast;
 	int _padTouch, _padLinger;
+	bool _padShown;            // the pad, after a long press
+	Common::Rect _fullBig;     // the screen without the pad
+	Common::Point _fullStart;  // where a touch began
+	uint32 _fullStartTime;
+	bool _fullTouching, _fullConsumed;
+	int _tapWait;              // frames left to see whether A did anything
+	uint32 _tapSig;
+	uint32 tableSignature();
+	void padPress(uint8 bits);
 	bool playScreen();
 	void drawFull();
 
