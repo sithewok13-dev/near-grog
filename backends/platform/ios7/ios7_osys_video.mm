@@ -99,15 +99,9 @@ void OSystem_iOS7::engineInit() {
 	applyOrientationSettings();
 	updateTouchMode();
 
-	// Automatically open the keyboard when starting a game and in portrait mode.
-	// This is preferred for text input games and there's a lot of screen space to
-	// utilize for the keyboard anyway.
-	if (_screenOrientation == kScreenOrientationPortrait ||
-		_screenOrientation == kScreenOrientationFlippedPortrait) {
-		execute_on_main_thread(^ {
-			[[iOS7AppDelegate iPhoneView] showKeyboard];
-		});
-	}
+	// Near-Grog: the keyboard doesn't open by itself when a game starts in
+	// portrait (stock ScummVM does that for text games); the layouts have
+	// their own controls
 #endif
 }
 
@@ -194,9 +188,9 @@ void OSystem_iOS7::setShowKeyboard(bool show) {
 		});
 #endif
 	} else {
-		// If in game, do not hide the keyboard in portrait mode as it is shown automatically and not
-		// just when asked with the kFeatureVirtualKeyboard.
-		if (_screenOrientation == kScreenOrientationLandscape || _screenOrientation == kScreenOrientationFlippedLandscape || ![[iOS7AppDelegate iPhoneView] isInGame]) {
+		// Near-Grog: the keyboard is never opened by itself in portrait, so
+		// it closes when asked whatever the orientation
+		{
 			execute_on_main_thread(^ {
 				[[iOS7AppDelegate iPhoneView] hideKeyboard];
 			});

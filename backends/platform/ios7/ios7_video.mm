@@ -675,11 +675,9 @@ bool iOS7_fetchEvent(InternalEvent *event) {
 	[self addEvent:InternalEvent(kInputOrientationChanged, screenOrientation, 0)];
 	if (UIInterfaceOrientationIsLandscape(orientation)) {
 		[self hideKeyboard];
-	} else {
-		// Automatically open the keyboard if changing orientation in a game
-		if ([self isInGame])
-			[self showKeyboard];
 	}
+	// Near-Grog: no keyboard popping up on turning to portrait - the games'
+	// layouts have their own controls (a long press or pinch still opens it)
 }
 #endif
 
