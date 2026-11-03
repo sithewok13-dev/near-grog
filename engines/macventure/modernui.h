@@ -179,6 +179,7 @@ private:
 
 	void drawBackground();
 	void drawRoom();
+	void drawHotspots(int surfW, int surfH);
 	void drawButtons();
 	void drawHoldRing(const Common::Rect &r, bool round, float progress);
 	void drawVerbs();

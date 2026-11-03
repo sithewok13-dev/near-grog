@@ -12,6 +12,7 @@ MODULE_OBJS := \
 	metaengine.o \
 	modernui.o \
 	neargrog_cheats.o \
+	neargrog_hints.o \
 	neargrog_tray.o \
 	prebuilt_dialogs.o \
 	saveload.o \

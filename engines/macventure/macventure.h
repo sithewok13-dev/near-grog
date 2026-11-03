@@ -251,8 +251,12 @@ public:
 	Gui *getGui() { return _gui; }
 	// Near-Grog cheats (neargrog_cheats.cpp): each a switch in the tray, per
 	// game - neargrog_cheat_moves (countdowns frozen), neargrog_cheat_undo
-	// (a fatal move is undone), neargrog_cheat_text (no click to continue)
+	// (a fatal move is undone), neargrog_cheat_text (no click to continue),
+	// neargrog_cheat_hotspots (frames round what can be clicked),
+	// neargrog_cheat_undomove (Undo last move in the tray)
 	static bool cheatOn(const char *key);
+	bool cheatUndoMove();
+	bool cheatCanUndo() const { return !_cheatUndo.empty(); }
 	void cheatBeforeCommand();
 	void cheatAfterCommand();
 	bool cheatOnDeath();
@@ -404,7 +408,7 @@ private: // Attributes
 	WinVersionLoader *_winLoader; // Near-Grog
 	Common::Array<uint16> _cheatPrev;   // Near-Grog cheats: the values after the last command
 	Common::Array<byte> _cheatStreak;   // turns in a row each value has gone down by one
-	Common::Array<byte> _cheatUndo;     // the game as it was before this command
+	Common::Array<Common::Array<byte> > _cheatUndo; // the game before each of the last moves
 	bool _cheatUndoPending;
 
 	// Engine state

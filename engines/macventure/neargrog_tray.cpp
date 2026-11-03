@@ -28,7 +28,10 @@
 
 #include "macventure/macventure.h"
 #include "common/config-manager.h"
+#include "macventure/gui.h"
 #include "macventure/modernui.h"
+#include "macventure/neargrog_hints.h"
+#include "gui/message.h"
 #include "macventure/neargrog_tray.h"
 
 #ifdef IPHONE_IOS7
@@ -49,9 +52,10 @@ enum {
 	kCmdOpacity = 'opac',
 	kCmdScummVM = 'smvm',
 	kCmdCheats = 'chea',
-	kCmdCheatMoves = 'chmv',
-	kCmdCheatUndo = 'chun',
-	kCmdCheatText = 'chtx',
+	kCmdCheatAll = 'chal',
+	kCmdCheatFirst = 0x100, // one per cheat, in kCheatKeys' order
+	kCmdUndoMove = 'undo',
+	kCmdHint = 'hint',
 	kCmdBack = 'back'
 };
 
@@ -110,26 +114,55 @@ public:
 
 } // End of anonymous namespace
 
+// The Hints cheat: a nudge for the room you are in
+void NearGrogTray::showHint(MacVentureEngine *vm) {
+	const Common::String room = vm->getGui()->findWindowData(kMainGameWindow).title;
+	const char *hint = findHint(ConfMan.get("gameid"), room);
+	Common::String text = hint ? Common::String::format("%s\n\n%s", room.c_str(), hint)
+		: Common::String::format("No hint for %s yet.", room.c_str());
+	PauseToken pause = vm->pauseEngine();
+	GUI::MessageDialog dialog{Common::U32String(text)};
+	dialog.runModal();
+}
+
 // The Cheats page: each switch flips and the page comes back showing it
+// (Hints, neargrog_cheat_hints, joins the list once rooms have hints written)
+static const char *const kCheatKeys[] = { "neargrog_cheat_moves", "neargrog_cheat_undo", "neargrog_cheat_text",
+	"neargrog_cheat_hotspots", "neargrog_cheat_undomove" };
+static const char *const kCheatNames[] = { "Unlimited moves", "Undo death", "Instant text",
+	"Show hotspots", "Undo any move" };
+static const int kCheatCount = ARRAYSIZE(kCheatKeys);
+
 static void openCheats(MacVentureEngine *vm) {
-	static const char *const kKeys[] = { "neargrog_cheat_moves", "neargrog_cheat_undo", "neargrog_cheat_text" };
-	static const char *const kNames[] = { "Unlimited moves", "Undo death", "Instant text" };
 	while (true) {
 		uint32 cmd;
+		bool all = true;
+		for (int i = 0; i < kCheatCount; i++)
+			all = all && MacVentureEngine::cheatOn(kCheatKeys[i]);
 		{
 			PauseToken pause = vm->pauseEngine();
-			Common::String labels[4];
-			for (int i = 0; i < 3; i++)
-				labels[i] = Common::String::format("%s: %s", kNames[i], MacVentureEngine::cheatOn(kKeys[i]) ? "On" : "Off");
-			labels[3] = "Back";
-			const uint32 cmds[] = { kCmdCheatMoves, kCmdCheatUndo, kCmdCheatText, kCmdBack };
-			TrayDialog page("Cheats", labels, cmds, 4);
+			Common::String labels[kCheatCount + 2];
+			uint32 cmds[kCheatCount + 2];
+			labels[0] = all ? "All off" : "All on";
+			cmds[0] = kCmdCheatAll;
+			for (int i = 0; i < kCheatCount; i++) {
+				labels[i + 1] = Common::String::format("%s: %s", kCheatNames[i], MacVentureEngine::cheatOn(kCheatKeys[i]) ? "On" : "Off");
+				cmds[i + 1] = kCmdCheatFirst + i;
+			}
+			labels[kCheatCount + 1] = "Back";
+			cmds[kCheatCount + 1] = kCmdBack;
+			TrayDialog page("Cheats", labels, cmds, kCheatCount + 2);
 			cmd = page.runModal();
 		}
-		int i = cmd == kCmdCheatMoves ? 0 : cmd == kCmdCheatUndo ? 1 : cmd == kCmdCheatText ? 2 : -1;
-		if (i < 0)
+		if (cmd == kCmdCheatAll) {
+			for (int i = 0; i < kCheatCount; i++)
+				ConfMan.setBool(kCheatKeys[i], !all);
+		} else if (cmd >= (uint32)kCmdCheatFirst && cmd < (uint32)(kCmdCheatFirst + kCheatCount)) {
+			const char *key = kCheatKeys[cmd - kCmdCheatFirst];
+			ConfMan.setBool(key, !MacVentureEngine::cheatOn(key));
+		} else {
 			return;
-		ConfMan.setBool(kKeys[i], !MacVentureEngine::cheatOn(kKeys[i]));
+		}
 		ConfMan.flushToDisk();
 	}
 }
@@ -139,16 +172,30 @@ void NearGrogTray::open(MacVentureEngine *vm) {
 		uint32 cmd;
 		{
 			PauseToken pause = vm->pauseEngine();
-			const Common::String labels[] = {
-				Common::String::format("Layout: %s", ModernUI::layoutName(ModernUI::configLayout())),
-				Common::String::format("Look: %s", ModernUI::lookName(ModernUI::configLook())),
-				Common::String::format("Button opacity: %d%%", ModernUI::configOpacity()),
-				"Cheats",
-				"ScummVM menu",
-				"Resume"
-			};
-			const uint32 cmds[] = { kCmdLayout, kCmdLook, kCmdOpacity, kCmdCheats, kCmdScummVM, kCmdResume };
-			TrayDialog tray("Near-Grog", labels, cmds, ARRAYSIZE(labels));
+			Common::Array<Common::String> labels;
+			Common::Array<uint32> cmds;
+			// The cheats' own buttons first, while they are on
+			if (MacVentureEngine::cheatOn("neargrog_cheat_undomove") && vm->cheatCanUndo()) {
+				labels.push_back("Undo last move");
+				cmds.push_back(kCmdUndoMove);
+			}
+			if (MacVentureEngine::cheatOn("neargrog_cheat_hints")) {
+				labels.push_back("Hint for this room");
+				cmds.push_back(kCmdHint);
+			}
+			labels.push_back(Common::String::format("Layout: %s", ModernUI::layoutName(ModernUI::configLayout())));
+			cmds.push_back(kCmdLayout);
+			labels.push_back(Common::String::format("Look: %s", ModernUI::lookName(ModernUI::configLook())));
+			cmds.push_back(kCmdLook);
+			labels.push_back(Common::String::format("Button opacity: %d%%", ModernUI::configOpacity()));
+			cmds.push_back(kCmdOpacity);
+			labels.push_back("Cheats");
+			cmds.push_back(kCmdCheats);
+			labels.push_back("ScummVM menu");
+			cmds.push_back(kCmdScummVM);
+			labels.push_back("Resume");
+			cmds.push_back(kCmdResume);
+			TrayDialog tray("Near-Grog", labels.data(), cmds.data(), labels.size());
 			cmd = tray.runModal();
 		}
 
@@ -178,6 +225,13 @@ void NearGrogTray::open(MacVentureEngine *vm) {
 		case kCmdCheats:
 			openCheats(vm);
 			continue; // back to the tray
+		case kCmdUndoMove:
+			if (vm->cheatUndoMove())
+				g_system->displayMessageOnOSD(Common::U32String("Move undone"));
+			return;
+		case kCmdHint:
+			showHint(vm);
+			return;
 		default:
 			return;
 		}

@@ -94,6 +94,7 @@ class ModernUI; // Near-Grog
 
 class Gui {
 	friend class ModernUI; // Near-Grog
+	friend class NearGrogTray; // Near-Grog: the room's title for the Hints cheat
 
 public:
 	Gui(MacVentureEngine *engine, Common::MacResManager *resman);

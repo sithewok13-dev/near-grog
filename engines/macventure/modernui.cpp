@@ -1216,12 +1216,42 @@ void ModernUI::drawRoom() {
 	}
 	Graphics::ManagedSurface *room = _gui->_mainGameWindow->getWindowSurface();
 	blitScaled(*room, Common::Rect(room->w, room->h), _roomPic);
+	if (MacVentureEngine::cheatOn("neargrog_cheat_hotspots"))
+		drawHotspots(room->w, room->h);
 	if (_look == kLookDark) {
 		_out.frameRect(_roomBox, rgb(90, 90, 100));
 		const Graphics::Font *f = font(_roomTitleFont, true, true);
 		// the room's name over the picture, with a shadow
 		text(roomTitle(), _roomBox.left + 13, _roomBox.top + 9, _roomBox.width() / 2, rgb(0, 0, 0), f);
 		text(roomTitle(), _roomBox.left + 12, _roomBox.top + 8, _roomBox.width() / 2, rgb(255, 255, 255), f);
+	}
+}
+
+// The Show hotspots cheat: a frame round everything in the room that can be
+// clicked (not the room's own picture)
+void ModernUI::drawHotspots(int surfW, int surfH) {
+	WindowData &data = _gui->findWindowData(kMainGameWindow);
+	BorderBounds border = borderBounds(data.type);
+	const uint32 col = rgb(255, 214, 0), shadow = rgb(0, 0, 0);
+	for (uint i = 0; i < data.children.size(); i++) {
+		ObjID obj = data.children[i].obj;
+		if (!_engine->isObjVisible(obj) || !_engine->isObjClickable(obj))
+			continue;
+		Common::Rect b = _engine->getObjBounds(obj);
+		b.translate(border.leftOffset - data.scrollPos.x, border.topOffset - data.scrollPos.y);
+		if (b.width() * b.height() * 10 > surfW * surfH * 8 || b.isEmpty())
+			continue; // the whole scene: not a hotspot
+		Common::Rect r(_roomPic.left + b.left * _roomPic.width() / surfW, _roomPic.top + b.top * _roomPic.height() / surfH,
+			_roomPic.left + b.right * _roomPic.width() / surfW, _roomPic.top + b.bottom * _roomPic.height() / surfH);
+		r.clip(_roomPic);
+		if (r.width() < 6 || r.height() < 6)
+			continue;
+		Common::Rect o(r.left - 1, r.top - 1, r.right + 1, r.bottom + 1);
+		o.clip(Common::Rect(_w, _h));
+		_out.frameRect(o, shadow);
+		_out.frameRect(r, col);
+		r.grow(-1);
+		_out.frameRect(r, col);
 	}
 }
 

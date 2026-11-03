@@ -33,6 +33,10 @@
  * move kills you, it is put back instead of the "You Died" box.
  *
  * Instant text: every "click to continue" is answered at once.
+ *
+ * Show hotspots: frames round what can be clicked (modernui.cpp).
+ *
+ * Undo any move: the last 20 moves are kept; the tray offers Undo last move.
  */
 
 #include "common/config-manager.h"
@@ -52,15 +56,18 @@ bool MacVentureEngine::cheatOn(const char *key) {
 }
 
 void MacVentureEngine::cheatBeforeCommand() {
-	_cheatUndo.clear();
-	if (!cheatOn("neargrog_cheat_undo"))
+	if (!cheatOn("neargrog_cheat_undo") && !cheatOn("neargrog_cheat_undomove")) {
+		_cheatUndo.clear();
 		return;
+	}
 	// The save-file wrapper owns (and deletes) the memory stream
 	Common::MemoryWriteStreamDynamic *mem = new Common::MemoryWriteStreamDynamic(DisposeAfterUse::YES);
 	Common::OutSaveFile out(mem);
 	_world->saveGameInto(&out);
 	out.finalize();
-	_cheatUndo = Common::Array<byte>(mem->getData(), mem->size());
+	_cheatUndo.push_back(Common::Array<byte>(mem->getData(), mem->size()));
+	if (_cheatUndo.size() > 20) // the last 20 moves
+		_cheatUndo.remove_at(0);
 }
 
 void MacVentureEngine::cheatAfterCommand() {
@@ -98,7 +105,18 @@ void MacVentureEngine::cheatUndoIfPending() {
 	if (!_cheatUndoPending)
 		return;
 	_cheatUndoPending = false;
-	Common::MemoryReadStream in(_cheatUndo.data(), _cheatUndo.size());
+	if (cheatUndoMove())
+		g_system->displayMessageOnOSD(Common::U32String("You died - undone (cheat)"));
+}
+
+// Puts the game back as it was before the last move (Undo death, and the
+// tray's Undo last move)
+bool MacVentureEngine::cheatUndoMove() {
+	if (_cheatUndo.empty())
+		return false;
+	Common::Array<byte> state = _cheatUndo.back();
+	_cheatUndo.pop_back();
+	Common::MemoryReadStream in(state.data(), state.size());
 	_world->loadGameFrom(&in);
 	reset();
 	setInitialFlags(kGameStatePlaying);
@@ -106,7 +124,7 @@ void MacVentureEngine::cheatUndoIfPending() {
 	_halted = false;
 	_paused = false;
 	_cheatPrev.clear();
-	g_system->displayMessageOnOSD(Common::U32String("You died - undone (cheat)"));
+	return true;
 }
 
 } // End of namespace MacVenture

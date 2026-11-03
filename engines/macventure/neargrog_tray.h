@@ -35,6 +35,9 @@ class NearGrogTray {
 public:
 	/** Shows the tray (the game is paused meanwhile) and does what is picked. */
 	static void open(MacVentureEngine *vm);
+
+private:
+	static void showHint(MacVentureEngine *vm); // the Hints cheat
 };
 
 } // End of namespace MacVenture
