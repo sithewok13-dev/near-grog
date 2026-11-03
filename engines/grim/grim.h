@@ -265,6 +265,11 @@ protected:
 	float *_joyAxisPosition;
 
 	bool _changeHardwareState = false;
+public:
+	// Near-Grog: HD
+	void nearGrogScreenSize(int &w, int &h);
+	Common::Point nearGrogToGame(Common::Point p);
+protected:
 
 	Actor *_selectedActor;
 	Iris *_iris;

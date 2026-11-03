@@ -67,7 +67,8 @@ enum {
 	kCmdCheats = 'chea',
 	kCmdScummVM = 'smvm',
 	kCmdKeyboard = 'kbrd',
-	kCmdControls = 'ctrl'
+	kCmdControls = 'ctrl',
+	kCmdHD = 'hdef'
 };
 
 struct Chapter {
@@ -136,8 +137,9 @@ class TrayDialog : public GUI::Dialog {
 public:
 	TrayDialog(bool monkey) : GUI::Dialog(0, 0, 0, 0) {
 		const char *const labels[] = { "Resume", "Chapter select", monkey ? "Free camera" : "Camera angles", "Take a photo", "Cheats", "Keyboard",
-			NearGrogTray::nearGrogControls() ? "Controls: Near-Grog" : "Controls: ScummVM", "ScummVM menu" };
-		const uint32 cmds[] = { kCmdResume, kCmdChapters, kCmdCamera, kCmdPhoto, kCmdCheats, kCmdKeyboard, kCmdControls, kCmdScummVM };
+			NearGrogTray::nearGrogControls() ? "Controls: Near-Grog" : "Controls: ScummVM",
+			(ConfMan.hasKey("neargrog_hd") && ConfMan.getBool("neargrog_hd")) ? "Graphics: HD" : "Graphics: Original", "ScummVM menu" };
+		const uint32 cmds[] = { kCmdResume, kCmdChapters, kCmdCamera, kCmdPhoto, kCmdCheats, kCmdKeyboard, kCmdControls, kCmdHD, kCmdScummVM };
 		const int n = ARRAYSIZE(labels);
 
 		// Sized from the screen and the theme's font, so the buttons are big
@@ -228,6 +230,16 @@ void NearGrogTray::open() {
 		g_system->displayMessageOnOSD(Common::U32String(nearGrogControls() ?
 			"Near-Grog touch controls" : "ScummVM's touch controls (the menu button opens this tray)"));
 		break;
+	case kCmdHD: {
+		// HD: the game drawn at the screen's own resolution (kept for this
+		// game); the engine saves, rebuilds its renderer and carries on
+		const bool hd = !(ConfMan.hasKey("neargrog_hd") && ConfMan.getBool("neargrog_hd"));
+		ConfMan.setBool("neargrog_hd", hd);
+		ConfMan.flushToDisk();
+		g_grim->changeHardwareState();
+		g_system->displayMessageOnOSD(Common::U32String(hd ? "HD graphics" : "Original 640x480 graphics"));
+		break;
+	}
 	case kCmdScummVM:
 		g_grim->Engine::openMainMenuDialog();
 		break;

@@ -415,11 +415,9 @@ Common::Error GrimEngine::run() {
 	}
 	g_sound = new SoundPlayer();
 
-	if (getGameType() == GType_GRIM && g_grim->isRemastered()) {
-		g_driver = createRenderer(1600, 900);
-	} else {
-		g_driver = createRenderer(640, 480);
-	}
+	int screenW, screenH;
+	nearGrogScreenSize(screenW, screenH);
+	g_driver = createRenderer(screenW, screenH);
 
 	if (getGameType() == GType_MONKEY4 && getGameLanguage() == Common::Language::ZH_TWN) {
 		_transcodeChineseToSimplified = ConfMan.hasKey("language") && (Common::parseLanguage(ConfMan.get("language")) == Common::Language::ZH_CHN);
@@ -1070,8 +1068,9 @@ void GrimEngine::mainLoop() {
 		if (_changeHardwareState) {
 			_changeHardwareState = false;
 
-			uint screenWidth = g_driver->getScreenWidth();
-			uint screenHeight = g_driver->getScreenHeight();
+			// Near-Grog: the size HD (or not) asks for now
+			int screenWidth, screenHeight;
+			nearGrogScreenSize(screenWidth, screenHeight);
 
 			EngineMode mode = getMode();
 
@@ -1154,6 +1153,8 @@ void GrimEngine::mainLoop() {
 			if (type == Common::EVENT_JOYBUTTON_DOWN || type == Common::EVENT_JOYBUTTON_UP)
 				handleJoyButton(type, event.joystick.button);
 
+			if (type == Common::EVENT_LBUTTONUP || type == Common::EVENT_LBUTTONDOWN || type == Common::EVENT_MOUSEMOVE)
+				event.mouse = nearGrogToGame(event.mouse); // Near-Grog: HD
 			if (type == Common::EVENT_LBUTTONUP) {
 				_cursorX = event.mouse.x;
 				_cursorY = event.mouse.y;
@@ -1214,6 +1215,38 @@ void GrimEngine::mainLoop() {
 			g_system->delayMillis(delayTime);
 		}
 	}
+}
+
+// Near-Grog: HD (neargrog_hd, per game, in the tray) draws at the screen's
+// own resolution in 4:3 - the 3D characters and text sharp, the 640x480
+// backgrounds scaled - instead of 640x480 scaled up. The Remastered edition
+// keeps its own 1600x900.
+void GrimEngine::nearGrogScreenSize(int &w, int &h) {
+	if (getGameType() == GType_GRIM && isRemastered()) {
+		w = 1600;
+		h = 900;
+		return;
+	}
+	w = 640;
+	h = 480;
+	if (!ConfMan.hasKey("neargrog_hd") || !ConfMan.getBool("neargrog_hd"))
+		return;
+	int side = MIN(g_system->getOverlayWidth(), g_system->getOverlayHeight());
+	if (ConfMan.hasKey("neargrog_hd_height")) // for testing
+		side = ConfMan.getInt("neargrog_hd_height");
+	h = CLIP(side, 480, 1440) & ~3;
+	w = (h * 4 / 3) & ~3;
+}
+
+// Near-Grog: touches come in screen pixels; the game and the tray's menu
+// taps work in 640x480
+Common::Point GrimEngine::nearGrogToGame(Common::Point p) {
+	if (!g_driver || (getGameType() == GType_GRIM && isRemastered()))
+		return p;
+	const int sw = g_driver->getScreenWidth(), sh = g_driver->getScreenHeight();
+	if (sw == 640 && sh == 480)
+		return p;
+	return Common::Point(p.x * 640 / MAX(1, sw), p.y * 480 / MAX(1, sh));
 }
 
 void GrimEngine::changeHardwareState() {
