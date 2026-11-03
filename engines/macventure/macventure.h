@@ -249,8 +249,10 @@ public:
 	void applyLayout();
 	void openMainMenuDialog() override;
 	Gui *getGui() { return _gui; }
-	// Near-Grog cheats (neargrog_cheats.cpp): countdowns frozen, deaths undone
-	static bool cheatsOn();
+	// Near-Grog cheats (neargrog_cheats.cpp): each a switch in the tray, per
+	// game - neargrog_cheat_moves (countdowns frozen), neargrog_cheat_undo
+	// (a fatal move is undone), neargrog_cheat_text (no click to continue)
+	static bool cheatOn(const char *key);
 	void cheatBeforeCommand();
 	void cheatAfterCommand();
 	bool cheatOnDeath();

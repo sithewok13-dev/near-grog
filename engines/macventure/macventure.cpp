@@ -268,7 +268,7 @@ void MacVentureEngine::setInitialFlags(GameState gameState) {
 	_cmdReady = false;
 	_haltedAtEnd = false;
 	_haltedInSelection = false;
-	_clickToContinue = true;
+	_clickToContinue = !cheatOn("neargrog_cheat_text"); // Near-Grog: instant text skips the opening pause too
 	_gameState = gameState;
 	_destObject = 0;
 	_prepared = true;
@@ -419,6 +419,8 @@ void MacVentureEngine::clickToContinue() {
 	_gui->scrollConsoleToRow(rowCount > _consoleRowsSincePause ? rowCount - _consoleRowsSincePause : 0);
 	_clickToContinue = true;
 	_enginePaused = true;
+	if (cheatOn("neargrog_cheat_text")) // Near-Grog: instant text, answered at once
+		selectControl(kClickToContinue);
 }
 
 void MacVentureEngine::enqueueObject(ObjectQueueID type, ObjID objID, ObjID target) {

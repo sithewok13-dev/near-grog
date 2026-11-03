@@ -21,15 +21,18 @@
 
 
 /*
- * Near-Grog: the MacVenture cheats, one switch in the tray (per game).
+ * Near-Grog: the MacVenture cheats, switches on the tray's Cheats page (per
+ * game).
  *
- * Unlimited time: these games count some things down one per move -
+ * Unlimited moves: these games count some things down one per move -
  * Shadowgate's torches, for one - in the game's own variables. With cheats
  * on, any value that has gone down by exactly one on two moves in a row is
  * a countdown, and is put back each move, so it never runs out.
  *
  * Undo death: the game is kept in memory as it was before each move; when a
  * move kills you, it is put back instead of the "You Died" box.
+ *
+ * Instant text: every "click to continue" is answered at once.
  */
 
 #include "common/config-manager.h"
@@ -44,13 +47,13 @@
 
 namespace MacVenture {
 
-bool MacVentureEngine::cheatsOn() {
-	return ConfMan.hasKey("neargrog_cheats") && ConfMan.getBool("neargrog_cheats");
+bool MacVentureEngine::cheatOn(const char *key) {
+	return ConfMan.hasKey(key) && ConfMan.getBool(key);
 }
 
 void MacVentureEngine::cheatBeforeCommand() {
 	_cheatUndo.clear();
-	if (!cheatsOn())
+	if (!cheatOn("neargrog_cheat_undo"))
 		return;
 	// The save-file wrapper owns (and deletes) the memory stream
 	Common::MemoryWriteStreamDynamic *mem = new Common::MemoryWriteStreamDynamic(DisposeAfterUse::YES);
@@ -63,7 +66,7 @@ void MacVentureEngine::cheatBeforeCommand() {
 void MacVentureEngine::cheatAfterCommand() {
 	Common::Array<uint16> now;
 	_world->cheatValues(now);
-	if (cheatsOn() && _cheatPrev.size() == now.size()) {
+	if (cheatOn("neargrog_cheat_moves") && _cheatPrev.size() == now.size()) {
 		_cheatStreak.resize(now.size());
 		for (uint i = 0; i < now.size(); i++) {
 			if (_cheatPrev[i] > 0 && now[i] == _cheatPrev[i] - 1) {
@@ -85,7 +88,7 @@ void MacVentureEngine::cheatAfterCommand() {
 }
 
 bool MacVentureEngine::cheatOnDeath() {
-	if (!cheatsOn() || _cheatUndo.empty())
+	if (!cheatOn("neargrog_cheat_undo") || _cheatUndo.empty())
 		return false;
 	_cheatUndoPending = true;
 	return true;

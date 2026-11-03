@@ -48,22 +48,17 @@ enum {
 	kCmdLook = 'look',
 	kCmdOpacity = 'opac',
 	kCmdScummVM = 'smvm',
-	kCmdCheats = 'chea'
+	kCmdCheats = 'chea',
+	kCmdCheatMoves = 'chmv',
+	kCmdCheatUndo = 'chun',
+	kCmdCheatText = 'chtx',
+	kCmdBack = 'back'
 };
 
 class TrayDialog : public GUI::Dialog {
 public:
-	TrayDialog() : GUI::Dialog(0, 0, 0, 0) {
-		const Common::String labels[] = {
-			Common::String::format("Layout: %s", ModernUI::layoutName(ModernUI::configLayout())),
-			Common::String::format("Look: %s", ModernUI::lookName(ModernUI::configLook())),
-			Common::String::format("Button opacity: %d%%", ModernUI::configOpacity()),
-			MacVentureEngine::cheatsOn() ? "Cheats: On (no timers, undo death)" : "Cheats: Off",
-			"ScummVM menu",
-			"Resume"
-		};
-		const uint32 cmds[] = { kCmdLayout, kCmdLook, kCmdOpacity, kCmdCheats, kCmdScummVM, kCmdResume };
-		const int n = ARRAYSIZE(labels);
+	// A page of big buttons: the tray itself, or its Cheats page
+	TrayDialog(const char *title, const Common::String *labels, const uint32 *cmds, int n) : GUI::Dialog(0, 0, 0, 0) {
 
 		// Sized from the screen and the theme's font, so the buttons are big
 		// enough for a finger on a phone. Two columns when one won't fit.
@@ -90,7 +85,7 @@ public:
 		_y = MAX<int>(10, (sh - _h) / 2);
 
 		new GUI::StaticTextWidget(this, margin, margin, _w - margin * 2, fh + 4,
-			Common::U32String("Near-Grog"), Graphics::kTextAlignCenter);
+			Common::U32String(title), Graphics::kTextAlignCenter);
 		for (int i = 0; i < n; i++) {
 			const int c = i % cols, r = i / cols;
 			new GUI::ButtonWidget(this, margin + c * (bw + gap), margin + titleH + r * (bh + gap), bw, bh,
@@ -115,12 +110,45 @@ public:
 
 } // End of anonymous namespace
 
+// The Cheats page: each switch flips and the page comes back showing it
+static void openCheats(MacVentureEngine *vm) {
+	static const char *const kKeys[] = { "neargrog_cheat_moves", "neargrog_cheat_undo", "neargrog_cheat_text" };
+	static const char *const kNames[] = { "Unlimited moves", "Undo death", "Instant text" };
+	while (true) {
+		uint32 cmd;
+		{
+			PauseToken pause = vm->pauseEngine();
+			Common::String labels[4];
+			for (int i = 0; i < 3; i++)
+				labels[i] = Common::String::format("%s: %s", kNames[i], MacVentureEngine::cheatOn(kKeys[i]) ? "On" : "Off");
+			labels[3] = "Back";
+			const uint32 cmds[] = { kCmdCheatMoves, kCmdCheatUndo, kCmdCheatText, kCmdBack };
+			TrayDialog page("Cheats", labels, cmds, 4);
+			cmd = page.runModal();
+		}
+		int i = cmd == kCmdCheatMoves ? 0 : cmd == kCmdCheatUndo ? 1 : cmd == kCmdCheatText ? 2 : -1;
+		if (i < 0)
+			return;
+		ConfMan.setBool(kKeys[i], !MacVentureEngine::cheatOn(kKeys[i]));
+		ConfMan.flushToDisk();
+	}
+}
+
 void NearGrogTray::open(MacVentureEngine *vm) {
 	while (true) {
 		uint32 cmd;
 		{
 			PauseToken pause = vm->pauseEngine();
-			TrayDialog tray;
+			const Common::String labels[] = {
+				Common::String::format("Layout: %s", ModernUI::layoutName(ModernUI::configLayout())),
+				Common::String::format("Look: %s", ModernUI::lookName(ModernUI::configLook())),
+				Common::String::format("Button opacity: %d%%", ModernUI::configOpacity()),
+				"Cheats",
+				"ScummVM menu",
+				"Resume"
+			};
+			const uint32 cmds[] = { kCmdLayout, kCmdLook, kCmdOpacity, kCmdCheats, kCmdScummVM, kCmdResume };
+			TrayDialog tray("Near-Grog", labels, cmds, ARRAYSIZE(labels));
 			cmd = tray.runModal();
 		}
 
@@ -148,9 +176,8 @@ void NearGrogTray::open(MacVentureEngine *vm) {
 			vm->Engine::openMainMenuDialog();
 			return;
 		case kCmdCheats:
-			ConfMan.setBool("neargrog_cheats", !MacVentureEngine::cheatsOn());
-			ConfMan.flushToDisk();
-			continue; // the tray comes back showing the new state
+			openCheats(vm);
+			continue; // back to the tray
 		default:
 			return;
 		}
