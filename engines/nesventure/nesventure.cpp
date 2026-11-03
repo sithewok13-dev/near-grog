@@ -110,13 +110,22 @@ const char *frameName() {
 class TrayDialog : public GUI::Dialog {
 public:
 	TrayDialog() : GUI::Dialog(0, 0, 0, 0), _opened(g_system->getMillis()) {
-		const Common::String labels[] = {
-			Common::String::format("Look: %s", NesUI::configLook() == NesUI::kLookDark ? "Dark" : "NES"),
+		// (Dark has no frame round the picture, so no Picture frame then)
+		const bool dark = NesUI::configLook() == NesUI::kLookDark;
+		const Common::String all[] = {
+			Common::String::format("Look: %s", dark ? "Dark" : "NES"),
 			Common::String::format("Picture frame: %s", frameName()),
 			"ScummVM menu", "Resume"
 		};
-		const uint32 cmds[] = { kCmdLook, kCmdFrame, kCmdScummVM, kCmdResume };
-		const int n = ARRAYSIZE(labels);
+		const uint32 allCmds[] = { kCmdLook, kCmdFrame, kCmdScummVM, kCmdResume };
+		Common::Array<Common::String> labels;
+		Common::Array<uint32> cmds;
+		for (int i = 0; i < ARRAYSIZE(all); i++)
+			if (!(dark && allCmds[i] == kCmdFrame)) {
+				labels.push_back(all[i]);
+				cmds.push_back(allCmds[i]);
+			}
+		const int n = labels.size();
 		const int sw = g_system->getOverlayWidth(), sh = g_system->getOverlayHeight();
 		const int fh = g_gui.getFontHeight();
 		const int bh = MAX(fh * 2, MIN(sw, sh) / 8), gap = bh / 4, margin = fh;

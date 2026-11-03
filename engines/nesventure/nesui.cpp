@@ -209,8 +209,15 @@ Common::Rect NesUI::itemRect(const NesItem &it) const {
 		return Common::Rect((it.col - 1) * 8, rowY(it.row), (it.col + 1) * 8, rowY(it.row) + 8);
 	if (n.hasSuffix("<") || n.hasSuffix(" up") || n.hasSuffix(" down"))
 		return Common::Rect(it.col * 8, rowY(it.row), (it.col + 2) * 8, rowY(it.row) + 8);
-	// The marker and the word
-	const int tiles = 1 + (n.contains(' ') ? (int)n.find(' ') : (int)n.size());
+	// The marker and the word - not past a blank or the panel's dividers
+	const int want = 1 + (n.contains(' ') ? (int)n.find(' ') : (int)n.size());
+	int tiles = 1;
+	while (tiles < want && it.col + tiles < 32) {
+		const byte t = _nes->ppuPeek(0x2000 + it.row * 32 + it.col + tiles);
+		if (isBlank(t) || t == 0x56 || t == 0x57 || t == 0x6A || t == 0x77 || t == 0x78)
+			break;
+		tiles++;
+	}
 	return Common::Rect(it.col * 8, rowY(it.row), (it.col + tiles) * 8, rowY(it.row) + 8);
 }
 
@@ -622,19 +629,41 @@ void NesUI::text(const Common::String &s, int x, int y, int w, uint32 col, const
 		f->drawString(&_out, s, x, y, w, col, center ? Graphics::kTextAlignCenter : Graphics::kTextAlignLeft);
 }
 
+// A rounded box, smooth: each pixel at the curve or the edge blends by how
+// much of it is covered (a 1.5-pixel outline over the fill, over what's
+// already there)
 void NesUI::roundRect(const Common::Rect &r, int radius, uint32 fill, uint32 edge) {
-	for (int y = r.top; y < r.bottom; y++) {
-		int inset = 0;
-		const int dy = y < r.top + radius ? r.top + radius - y : (y >= r.bottom - radius ? y - (r.bottom - radius - 1) : 0);
-		if (dy > 0)
-			while (inset < radius && (radius - inset) * (radius - inset) + dy * dy > radius * radius)
-				inset++;
-		_out.hLine(r.left + inset, y, r.right - 1 - inset, fill);
-		_out.setPixel(r.left + inset, y, edge);
-		_out.setPixel(r.right - 1 - inset, y, edge);
+	radius = MIN<int>(radius, MIN(r.width(), r.height()) / 2);
+	uint8 fr, fg, fb, er, eg, eb;
+	_format.colorToRGB(fill, fr, fg, fb);
+	_format.colorToRGB(edge, er, eg, eb);
+	const float lw = 1.5f;
+	for (int y = MAX<int>(0, r.top); y < MIN<int>(_h, r.bottom); y++) {
+		for (int x = MAX<int>(0, r.left); x < MIN<int>(_w, r.right); x++) {
+			// distance inside the shape's outline
+			const float px = x + 0.5f, py = y + 0.5f;
+			const float cx = CLIP<float>(px, r.left + radius, r.right - radius), cy = CLIP<float>(py, r.top + radius, r.bottom - radius);
+			float inside;
+			if (px != cx || py != cy) {
+				const float dx = px - cx, dy = py - cy;
+				inside = radius - sqrtf(dx * dx + dy * dy);
+			} else {
+				inside = MIN(MIN(px - r.left, r.right - px), MIN(py - r.top, r.bottom - py));
+			}
+			const float cover = CLIP(inside + 0.5f, 0.0f, 1.0f);
+			if (cover <= 0)
+				continue;
+			const float edgeA = CLIP(lw - inside + 0.5f, 0.0f, 1.0f); // the outline's share
+			const float rr = fr + (er - fr) * edgeA, gg = fg + (eg - fg) * edgeA, bb = fb + (eb - fb) * edgeA;
+			if (cover >= 1) {
+				_out.setPixel(x, y, _format.RGBToColor((uint8)rr, (uint8)gg, (uint8)bb));
+			} else {
+				uint8 br, bgc, bbc;
+				_format.colorToRGB(_out.getPixel(x, y), br, bgc, bbc);
+				_out.setPixel(x, y, _format.RGBToColor((uint8)(br + (rr - br) * cover), (uint8)(bgc + (gg - bgc) * cover), (uint8)(bbc + (bb - bbc) * cover)));
+			}
+		}
 	}
-	_out.hLine(r.left + radius, r.top, r.right - 1 - radius, edge);
-	_out.hLine(r.left + radius, r.bottom - 1, r.right - 1 - radius, edge);
 }
 
 void NesUI::blitNes(const byte *src, const Common::Rect &from, const Common::Rect &to) {
@@ -677,6 +706,22 @@ void NesUI::drawGlyph(byte tile, int x, int y, int scale, uint32 fg, uint32 bg) 
 	(void)bg;
 }
 
+// A letter at any size (each of its pixels rounded to whole screen pixels)
+void NesUI::drawGlyphF(byte tile, float x, int y, float scale, uint32 fg) {
+	const uint16 table = _nes->bgPatterns();
+	const uint16 blank = table + _map->blankTile * 16;
+	const uint8 paper = ((_nes->ppuPeek(blank) >> 7) & 1) | (((_nes->ppuPeek(blank + 8) >> 7) & 1) << 1);
+	const uint16 base = table + tile * 16;
+	for (int r = 0; r < 8; r++) {
+		const uint8 lo = _nes->ppuPeek(base + r), hi = _nes->ppuPeek(base + r + 8);
+		for (int c = 0; c < 8; c++) {
+			const uint8 v = ((lo >> (7 - c)) & 1) | (((hi >> (7 - c)) & 1) << 1);
+			if (v != paper)
+				_out.fillRect(Common::Rect((int)(x + c * scale), (int)(y + r * scale), (int)(x + (c + 1) * scale), (int)(y + (r + 1) * scale)), fg);
+		}
+	}
+}
+
 // Words in the game's own letters (capitals, digits and a few signs)
 void NesUI::nesText(const char *s, int x, int y, int scale, uint32 col) {
 	for (int k = 0; s[k]; k++, x += 8 * scale) {
@@ -688,10 +733,57 @@ void NesUI::nesText(const char *s, int x, int y, int scale, uint32 col) {
 	}
 }
 
-void NesUI::drawHoldRing(const Common::Rect &r, float progress) {
-	const uint32 col = _look == kLookDark ? rgb(60, 120, 200) : _pal[_textFg];
-	const int len = (int)(progress * r.width());
-	_out.fillRect(Common::Rect(r.left, r.bottom - 6, r.left + len, r.bottom), col);
+// The quick save / load hold: a ring that follows the button's rounded
+// outline a little outside it, filling clockwise from the top middle
+void NesUI::drawHoldRing(const Common::Rect &r, int radius, float progress) {
+	const uint32 col = _look == kLookDark ? rgb(60, 120, 200) : _pal[_textBg];
+	uint8 cr, cg, cb;
+	_format.colorToRGB(col, cr, cg, cb);
+	const float g = 4, t = 3; // gap out from the button, thickness
+	const float l = r.left - g, tp = r.top - g, rt = r.right + g, bt = r.bottom + g;
+	const float R = MIN<float>(radius + g, MIN(rt - l, bt - tp) / 2);
+	const float cx = (l + rt) / 2, hw = (rt - l) / 2, hh = (bt - tp) / 2;
+	const float L1 = hw - R, A = (float)M_PI * R / 2, V = 2 * (hh - R), H = 2 * (hw - R);
+	const float total = 2 * H + 2 * V + 4 * A, len = progress * total;
+	for (int y = MAX<int>(0, (int)tp - 1); y < MIN<int>(_h, (int)bt + 1); y++)
+		for (int x = MAX<int>(0, (int)l - 1); x < MIN<int>(_w, (int)rt + 1); x++) {
+			const float px = x + 0.5f, py = y + 0.5f;
+			const float qx = CLIP<float>(px, l + R, rt - R), qy = CLIP<float>(py, tp + R, bt - R);
+			const float dx = px - qx, dy = py - qy;
+			if (dx == 0 && dy == 0)
+				continue;
+			const float od = sqrtf(dx * dx + dy * dy) - R; // + outside the outline
+			float cover = CLIP(0.5f - od, 0.0f, 1.0f) * CLIP(od + t + 0.5f, 0.0f, 1.0f);
+			if (cover <= 0)
+				continue;
+			// how far round the outline this is
+			float sp;
+			float ang = atan2f(dx, -dy); // 0 up, clockwise
+			if (ang < 0)
+				ang += 2 * (float)M_PI;
+			if (dx == 0 && dy < 0)
+				sp = qx >= cx ? qx - cx : total - (cx - qx);
+			else if (dy == 0 && dx > 0)
+				sp = L1 + A + (qy - (tp + R));
+			else if (dx == 0)
+				sp = L1 + 2 * A + V + ((rt - R) - qx);
+			else if (dy == 0)
+				sp = L1 + 3 * A + V + H + ((bt - R) - qy);
+			else if (dx > 0 && dy < 0)
+				sp = L1 + R * ang;
+			else if (dx > 0)
+				sp = L1 + A + V + R * (ang - (float)M_PI / 2);
+			else if (dy > 0)
+				sp = L1 + 2 * A + V + H + R * (ang - (float)M_PI);
+			else
+				sp = L1 + 3 * A + 2 * V + H + R * (ang - 3 * (float)M_PI / 2);
+			cover *= CLIP(len - sp + 0.5f, 0.0f, 1.0f);
+			if (cover <= 0)
+				continue;
+			uint8 br, bgc, bbc;
+			_format.colorToRGB(_out.getPixel(x, y), br, bgc, bbc);
+			_out.setPixel(x, y, _format.RGBToColor((uint8)(br + (cr - br) * cover), (uint8)(bgc + (cg - bgc) * cover), (uint8)(bbc + (cb - bbc) * cover)));
+		}
 }
 
 void NesUI::drawButtons() {
@@ -709,7 +801,7 @@ void NesUI::drawButtons() {
 			nesText(kLabels[i], b.left + (b.width() - w) / 2, b.top + (b.height() - 8 * sc) / 2, sc, ink);
 		}
 		if (_pressButton == i && !_holdFired && i < 2)
-			drawHoldRing(b, MIN(1.0f, (g_system->getMillis() - _pressTime) / 500.0f));
+			drawHoldRing(b, dark ? 24 : 6, MIN(1.0f, (g_system->getMillis() - _pressTime) / 500.0f));
 	}
 }
 
@@ -730,15 +822,19 @@ void NesUI::drawVerbs() {
 			text(label, c.left, c.top + (c.height() - (f ? f->getFontHeight() : 16)) / 2, c.width(), rgb(255, 255, 255), f, true);
 			continue;
 		}
-		// The game's own label, from its screen, on its panel colour
+		// The game's own label, from its screen, on its panel colour; the
+		// markers lined up down each column (the widest label centred)
 		const Common::Rect from = itemRect(it);
 		roundRect(c, 6, _pal[_verbPaper], _pal[_textFg]);
-		int sc = MIN<int>(3, (c.height() - 8) / 8);
-		while (sc > 1 && from.width() * sc > c.width() - 8)
+		int sc = MIN<int>(3, (c.height() - 8) / 8), widest = 0;
+		for (uint k = i % 3; k < MIN<uint>(9, _verbCells.size()); k += 3)
+			widest = MAX<int>(widest, itemRect(_map->verbs[k]).width());
+		if (i >= 9)
+			widest = from.width();
+		while (sc > 1 && widest * sc > c.width() - 8)
 			sc--;
-		const Common::Rect to(c.left + (c.width() - from.width() * sc) / 2, c.top + (c.height() - from.height() * sc) / 2,
-			c.left + (c.width() - from.width() * sc) / 2 + from.width() * sc, c.top + (c.height() - from.height() * sc) / 2 + from.height() * sc);
-		blitNes(src, from, to);
+		const int left = c.left + (c.width() - widest * sc) / 2, top = c.top + (c.height() - from.height() * sc) / 2;
+		blitNes(src, from, Common::Rect(left, top, left + from.width() * sc, top + from.height() * sc));
 	}
 }
 
@@ -805,19 +901,54 @@ void NesUI::drawText() {
 			text(out[i], b.left + 14, y, b.width() - 40, rgb(240, 232, 210), f);
 		return;
 	}
-	// The game's own letters
-	int sc = MIN(3, (b.width() - 24) / (26 * 8));
-	sc = MAX(sc, 2);
-	const int lh = 8 * sc + 8 * sc / 3;
+	// The game's own letters, each paragraph re-flowed to fill the width
+	// (about 28 letters a line, the letters as big as that allows)
+	const float sc = MIN(3.0f, (b.width() - 24) / (28.0f * 8));
+	const int cols = MAX(10, (int)((b.width() - 24) / (8 * sc)));
+	Common::Array<Common::Array<byte> > flowed;
+	Common::Array<byte> line;
+	for (uint i = 0; i <= lines.size(); i++) {
+		if (i == lines.size() || lines[i].empty()) {
+			if (!line.empty())
+				flowed.push_back(line);
+			line.clear();
+			if (i < lines.size() && !flowed.empty() && !flowed.back().empty())
+				flowed.push_back(Common::Array<byte>());
+			continue;
+		}
+		// word by word
+		const Common::Array<byte> &l = lines[i];
+		uint k = 0;
+		while (k < l.size()) {
+			while (k < l.size() && (isBlank(l[k]) || l[k] == 0xB0))
+				k++;
+			Common::Array<byte> word;
+			while (k < l.size() && !(isBlank(l[k]) || l[k] == 0xB0))
+				word.push_back(l[k++]);
+			if (word.empty())
+				break;
+			if (!line.empty() && line.size() + 1 + word.size() > (uint)cols) {
+				flowed.push_back(line);
+				line.clear();
+			}
+			if (!line.empty())
+				line.push_back(0x7F);
+			for (uint w = 0; w < word.size(); w++)
+				line.push_back(word[w]);
+		}
+	}
+	while (!flowed.empty() && flowed.back().empty())
+		flowed.pop_back();
+	const int lh = (int)(8 * sc * 4 / 3);
 	const int n = (b.height() - 16) / lh;
-	const int last = MAX<int>(0, (int)lines.size() - _scroll);
+	const int last = MAX<int>(0, (int)flowed.size() - _scroll);
 	const int first = MAX<int>(0, last - n);
 	int y = b.top + 10;
 	for (int i = first; i < last; i++, y += lh) {
-		for (uint k = 0; k < lines[i].size(); k++)
-			if (!isBlank(lines[i][k]))
-				drawGlyph(lines[i][k], b.left + 12 + k * 8 * sc, y, sc, _pal[_textFg], _pal[_textBg]);
-		_out.hLine(b.left + 8, y + 8 * sc + 2, b.right - 9, _pal[_textFg]);
+		for (uint k = 0; k < flowed[i].size(); k++)
+			if (!isBlank(flowed[i][k]))
+				drawGlyphF(flowed[i][k], b.left + 12 + k * 8 * sc, y, sc, _pal[_textFg]);
+		_out.hLine(b.left + 8, y + (int)(8 * sc) + 2, b.right - 9, _pal[_textFg]);
 	}
 	if (_textMode) // the game waits: a tap turns the page
 		nesText("TAP", b.right - 8 * 2 * 3 - 12, b.bottom - 8 * 2 - 8, 2, _pal[_textFg]);

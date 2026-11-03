@@ -171,6 +171,7 @@ private:
 	void blitNes(const byte *src, const Common::Rect &from, const Common::Rect &to);
 	void drawGlyph(byte tile, int x, int y, int scale, uint32 fg, uint32 bg);
 	void nesText(const char *s, int x, int y, int scale, uint32 col);
+	void drawGlyphF(byte tile, float x, int y, float scale, uint32 fg);
 	const Graphics::Font *font(int size, bool bold, bool serif);
 	void text(const Common::String &s, int x, int y, int w, uint32 col, const Graphics::Font *f, bool center = false);
 	void roundRect(const Common::Rect &r, int radius, uint32 fill, uint32 edge);
@@ -178,7 +179,7 @@ private:
 	void drawVerbs();
 	void drawText();
 	void drawShelf();
-	void drawHoldRing(const Common::Rect &r, float progress);
+	void drawHoldRing(const Common::Rect &r, int radius, float progress);
 	Common::Point toNes(const Common::Rect &box, const Common::Rect &src, Common::Point p) const;
 };
 
