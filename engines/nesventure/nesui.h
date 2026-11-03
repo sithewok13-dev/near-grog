@@ -127,6 +127,15 @@ private:
 	uint8 _pad;
 	int _continueFrames;
 
+	// Title and menu screens (not the play screen): the whole NES screen and
+	// an NES pad
+	bool _fullMode;
+	Common::Rect _fullBox, _fullMenu, _padRects[8];
+	uint8 _padHeld, _padLast;
+	int _padTouch, _padLinger;
+	bool playScreen();
+	void drawFull();
+
 	// Layout (screen pixels)
 	Common::Rect _picBox, _buttons[3], _verbBox, _textBox, _goodsBox, _moveBox;
 	Common::Array<Common::Rect> _verbCells;

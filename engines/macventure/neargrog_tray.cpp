@@ -62,7 +62,8 @@ enum {
 class TrayDialog : public GUI::Dialog {
 public:
 	// A page of big buttons: the tray itself, or its Cheats page
-	TrayDialog(const char *title, const Common::String *labels, const uint32 *cmds, int n) : GUI::Dialog(0, 0, 0, 0) {
+	TrayDialog(const char *title, const Common::String *labels, const uint32 *cmds, int n) : GUI::Dialog(0, 0, 0, 0),
+			_opened(g_system->getMillis()) {
 
 		// Sized from the screen and the theme's font, so the buttons are big
 		// enough for a finger on a phone. Two columns when one won't fit.
@@ -107,9 +108,16 @@ public:
 	}
 
 	void handleCommand(GUI::CommandSender *sender, uint32 cmd, uint32 data) override {
+		// The tray and its Cheats page reopen as soon as a switch is
+		// flipped: a tap arriving as the page appears is the last one's
+		if (g_system->getMillis() - _opened < 350)
+			return;
 		setResult(cmd);
 		close();
 	}
+
+private:
+	uint32 _opened;
 };
 
 } // End of anonymous namespace

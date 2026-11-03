@@ -73,7 +73,7 @@ bool isBlank(byte t) { return t == 0x7E || t == 0x7F || t == 0xDE || t == 0xDF; 
 
 NesUI::NesUI(Nes *nes, GameId game) : _nes(nes), _game(game), _map(&kMaps[game]), _w(0), _h(0), _portrait(false),
 		_look(kLookNes), _textMode(false), _haveSnapshot(false), _textFg(0x0F), _textBg(0x30), _haveTextColours(false), _verbPaper(0x30), _commandFrames(0),
-		_scroll(0), _pad(0), _continueFrames(0), _pressButton(-1), _pressTime(0), _holdFired(false), _lastSignature(0), _drawn(false) {
+		_scroll(0), _pad(0), _continueFrames(0), _pressButton(-1), _pressTime(0), _holdFired(false), _lastSignature(0), _drawn(false), _fullMode(false), _padHeld(0), _padTouch(-1), _padLast(0), _padLinger(0) {
 	memset(_snapshot, 0, sizeof(_snapshot));
 	memset(_pal, 0, sizeof(_pal));
 	_goal.active = false;
@@ -146,6 +146,37 @@ void NesUI::layout() {
 		_verbBox = Common::Rect(L, _goodsBox.top - 10 - rows * 56, R, _goodsBox.top - 10);
 		_textBox = Common::Rect(L, _picBox.bottom + 10, R, _verbBox.top - 10);
 	}
+	// Title and menu screens: the NES screen whole, an NES pad beside it
+	// (landscape) or under it (portrait), MENU in the corner
+	if (!_portrait) {
+		const int h = _h - 28, w = h * 256 / 240;
+		_fullBox = Common::Rect((_w - w) / 2, 14, (_w - w) / 2 + w, 14 + h);
+		const int cx = (54 + _fullBox.left) / 2, cy = _h / 2 + 40, b = 64;
+		_padRects[0] = Common::Rect(cx - b / 2, cy - b * 3 / 2, cx + b / 2, cy - b / 2);       // up
+		_padRects[1] = Common::Rect(cx - b / 2, cy + b / 2, cx + b / 2, cy + b * 3 / 2);       // down
+		_padRects[2] = Common::Rect(cx - b * 3 / 2, cy - b / 2, cx - b / 2, cy + b / 2);       // left
+		_padRects[3] = Common::Rect(cx + b / 2, cy - b / 2, cx + b * 3 / 2, cy + b / 2);       // right
+		const int rx = (_fullBox.right + _w - 54) / 2;
+		_padRects[4] = Common::Rect(rx + 10, cy - 90, rx + 100, cy);                          // A
+		_padRects[5] = Common::Rect(rx - 100, cy - 30, rx - 10, cy + 60);                     // B
+		_padRects[6] = Common::Rect(rx - 90, cy + 110, rx + 90, cy + 160);                    // START
+		_padRects[7] = Common::Rect(rx - 90, cy + 170, rx + 90, cy + 220);                    // SELECT
+		_fullMenu = Common::Rect(_w - 54 - 140, 14, _w - 54, 64);
+	} else {
+		const int w = _w - 48, h = w * 240 / 256;
+		_fullBox = Common::Rect(24, 80, 24 + w, 80 + h);
+		const int cx = 170, cy = _fullBox.bottom + 240, b = 80;
+		_padRects[0] = Common::Rect(cx - b / 2, cy - b * 3 / 2, cx + b / 2, cy - b / 2);
+		_padRects[1] = Common::Rect(cx - b / 2, cy + b / 2, cx + b / 2, cy + b * 3 / 2);
+		_padRects[2] = Common::Rect(cx - b * 3 / 2, cy - b / 2, cx - b / 2, cy + b / 2);
+		_padRects[3] = Common::Rect(cx + b / 2, cy - b / 2, cx + b * 3 / 2, cy + b / 2);
+		_padRects[4] = Common::Rect(_w - 150, cy - 110, _w - 40, cy);
+		_padRects[5] = Common::Rect(_w - 280, cy - 40, _w - 170, cy + 70);
+		_padRects[6] = Common::Rect(_w / 2 - 210, cy + 200, _w / 2 - 10, cy + 260);
+		_padRects[7] = Common::Rect(_w / 2 + 10, cy + 200, _w / 2 + 210, cy + 260);
+		_fullMenu = Common::Rect(_w - 24 - 140, 20, _w - 24, 70);
+	}
+
 	// The verb cells: three across, the extras in a row of their own
 	_verbCells.clear();
 	const int rowsH = _verbBox.height() / rows;
@@ -180,7 +211,25 @@ Common::Rect NesUI::itemRect(const NesItem &it) const {
 	return Common::Rect(it.col * 8, rowY(it.row), (it.col + tiles) * 8, rowY(it.row) + 8);
 }
 
+// The play screen has the inventory's title ("GOODS", "PROPERTY") at the
+// top of the right panel; the title, file and intro screens don't
+bool NesUI::playScreen() {
+	Common::Array<byte> row;
+	for (int c = 17; c < 31; c++)
+		row.push_back(_nes->ppuPeek(0x2000 + 3 * 32 + c));
+	return decode(row).contains(_map->goodsTitle);
+}
+
 void NesUI::update() {
+	_fullMode = !playScreen();
+	if (_fullMode) {
+		// A tap is held for a few frames, so a quick one still counts
+		_pad = _padHeld | (_padLinger ? _padLast : 0);
+		if (_padLinger)
+			_padLinger--;
+		_goal.active = false;
+		return;
+	}
 	const bool wasText = _textMode;
 	// Text or commands: which name table the bottom panel comes from. The
 	// games flicker back to the commands for a frame now and then while
@@ -399,6 +448,24 @@ Common::Point NesUI::toNes(const Common::Rect &box, const Common::Rect &src, Com
 }
 
 NesUI::Action NesUI::press(Common::Point p) {
+	if (_fullMode) {
+		static const uint8 kBits[8] = { Nes::kUp, Nes::kDown, Nes::kLeft, Nes::kRight, Nes::kA, Nes::kB, Nes::kStart, Nes::kSelect };
+		_padTouch = -1;
+		for (int i = 0; i < 8; i++) {
+			Common::Rect r = _padRects[i];
+			r.grow(10);
+			if (r.contains(p)) {
+				_padTouch = i;
+				_padHeld = kBits[i];
+			}
+		}
+		if (_padTouch < 0 && _fullBox.contains(p)) { // a tap on the screen: START
+			_padTouch = 6;
+			_padHeld = Nes::kStart;
+		}
+		_pressButton = -1;
+		return kNone;
+	}
 	_pressPoint = p;
 	_pressTime = g_system->getMillis();
 	_holdFired = false;
@@ -417,6 +484,15 @@ NesUI::Action NesUI::tick() {
 }
 
 NesUI::Action NesUI::release(Common::Point p) {
+	if (_fullMode) {
+		if (_padHeld) {
+			_padLast = _padHeld;
+			_padLinger = 4;
+		}
+		_padHeld = 0;
+		_padTouch = -1;
+		return _fullMenu.contains(p) ? kTray : kNone;
+	}
 	const int button = _pressButton;
 	_pressButton = -1;
 	if (button >= 0) {
@@ -752,6 +828,37 @@ void NesUI::drawShelf() {
 	}
 }
 
+// Title and menu screens: the NES screen, an NES pad, MENU
+void NesUI::drawFull() {
+	const bool dark = _look == kLookDark;
+	_out.fillRect(Common::Rect(_w, _h), dark ? rgb(12, 12, 16) : rgb(0, 0, 0));
+	blitNes(_nes->screen(), Common::Rect(0, 0, 256, 240), _fullBox);
+	static const char *const kLabels[8] = { "", "", "", "", "A", "B", "START", "SELECT" };
+	const uint32 fill = rgb(40, 40, 48), edge = rgb(200, 200, 210), lit = rgb(60, 120, 200);
+	for (int i = 0; i < 8; i++) {
+		const Common::Rect &r = _padRects[i];
+		roundRect(r, i == 4 || i == 5 ? r.width() / 2 : 12, _padTouch == i ? lit : fill, edge);
+		const Graphics::Font *f = font(18, true, false);
+		if (kLabels[i][0])
+			text(kLabels[i], r.left, r.top + (r.height() - (f ? f->getFontHeight() : 16)) / 2, r.width(), rgb(255, 255, 255), f, true);
+		else {
+			// the d-pad's arrows
+			const int cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2, a = r.width() / 4;
+			for (int k = 0; k < a; k++) {
+				switch (i) {
+				case 0: _out.hLine(cx - k, cy - a / 2 + k, cx + k, edge); break;
+				case 1: _out.hLine(cx - k, cy + a / 2 - k, cx + k, edge); break;
+				case 2: _out.vLine(cx - a / 2 + k, cy - k, cy + k, edge); break;
+				default: _out.vLine(cx + a / 2 - k, cy - k, cy + k, edge); break;
+				}
+			}
+		}
+	}
+	roundRect(_fullMenu, 14, fill, edge);
+	const Graphics::Font *f = font(16, true, false);
+	text("MENU", _fullMenu.left, _fullMenu.top + (_fullMenu.height() - (f ? f->getFontHeight() : 16)) / 2, _fullMenu.width(), rgb(255, 255, 255), f, true);
+}
+
 uint32 NesUI::signature() const {
 	uint32 h = 2166136261u;
 	const byte *scr = _nes->screen();
@@ -761,6 +868,7 @@ uint32 NesUI::signature() const {
 	for (uint i = 0; i < _page.size(); i++)
 		pageLen += _page[i].size();
 	h ^= Common::hashit(ConfMan.get("neargrog_nes_frame").c_str());
+	h ^= _fullMode * 104729 + (_padTouch + 2) * 7;
 	h ^= _history.size() * 7919 + pageLen * 31 + _scroll * 131 + (_pressButton + 1) * 977 + _holdFired * 3 + _look * 5 + _textMode * 11;
 	if (_pressButton >= 0 && !_holdFired)
 		h ^= g_system->getMillis(); // the hold ring fills
@@ -773,6 +881,10 @@ bool NesUI::draw() {
 		return false;
 	_lastSignature = sig;
 	_drawn = true;
+	if (_fullMode) {
+		drawFull();
+		return true;
+	}
 	const bool dark = _look == kLookDark;
 	_out.fillRect(Common::Rect(_w, _h), dark ? rgb(12, 12, 16) : rgb(0, 0, 0));
 	// The picture: alone (bigger) in Dark and by default in the game's look;

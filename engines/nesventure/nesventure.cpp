@@ -109,7 +109,7 @@ const char *frameName() {
 
 class TrayDialog : public GUI::Dialog {
 public:
-	TrayDialog() : GUI::Dialog(0, 0, 0, 0) {
+	TrayDialog() : GUI::Dialog(0, 0, 0, 0), _opened(g_system->getMillis()) {
 		const Common::String labels[] = {
 			Common::String::format("Look: %s", NesUI::configLook() == NesUI::kLookDark ? "Dark" : "NES"),
 			Common::String::format("Picture frame: %s", frameName()),
@@ -130,9 +130,14 @@ public:
 			new GUI::ButtonWidget(this, margin, margin + fh * 2 + i * (bh + gap), bw, bh, Common::U32String(labels[i]), Common::U32String(), cmds[i]);
 	}
 	void handleCommand(GUI::CommandSender *sender, uint32 cmd, uint32 data) override {
+		if (g_system->getMillis() - _opened < 350) // a tap from the page before
+			return;
 		setResult(cmd);
 		close();
 	}
+
+private:
+	uint32 _opened;
 };
 
 } // End of anonymous namespace
