@@ -29,6 +29,7 @@
 #include "graphics/surface.h"
 #include "darklord/apple2.h"
 #include "darklord/machine.h"
+#include "graphics/pixelformat.h"
 
 namespace Audio {
 class QueuingAudioStream;
@@ -55,6 +56,7 @@ public:
 	Common::Error run() override;
 	bool hasFeature(EngineFeature f) const override;
 	bool canLoadGameStateCurrently(Common::U32String *msg = nullptr) override { return true; }
+	void openMainMenuDialog() override;
 	bool canSaveGameStateCurrently(Common::U32String *msg = nullptr) override { return true; }
 	Common::Error saveGameStream(Common::WriteStream *stream, bool isAutosave = false) override;
 	Common::Error loadGameStream(Common::SeekableReadStream *stream) override;
@@ -95,6 +97,14 @@ private:
 	// Uninvited: a mouse game. A touch puts its pointer (sprite 0) there and
 	// holds the button (port 2's fire) while the finger is down.
 	bool _uninvited;
+	class C64UI *_ui;          // its phone layouts
+	Graphics::PixelFormat _format;
+	byte _c64Screen[320 * 200];
+	int _menuClick;            // frames left of a click on the game's ?= menu
+	void applyLayout();
+	void present();
+	void quickSave();
+	void quickLoad();
 	bool _touching;
 	int _fireFrames;          // frames left to hold the button after a quick tap
 	Common::Point _touch;     // C64 screen pixels

@@ -2,6 +2,7 @@ MODULE := engines/darklord
 
 MODULE_OBJS = \
 	apple2.o \
+	c64ui.o \
 	cpu6502.o \
 	darklord.o \
 	machine.o \
