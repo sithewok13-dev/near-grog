@@ -99,6 +99,19 @@ public:
 	/** The text on screen, lower case, 25 lines of 40 joined by newlines. */
 	Common::String screenText() const;
 	uint diskCount() const { return _disks.size(); }
+	/**
+	 * The joysticks (bits: up 1, down 2, left 4, right 8, fire 16). Port 2
+	 * is read at $DC00, port 1 at $DC01 with the keyboard.
+	 */
+	void setJoystick(int port, uint8 bits) { (port == 1 ? _joy1 : _joy2) = bits; }
+	/** Sprite 0's position, as the VIC holds it (for games whose pointer it is). */
+	int spriteX(int n) const { return _vic[n * 2] | (((_vic[0x10] >> n) & 1) << 8); }
+	int spriteY(int n) const { return _vic[n * 2 + 1]; }
+	void setSprite(int n, int x, int y) {
+		_vic[n * 2] = x & 0xFF;
+		_vic[0x10] = (_vic[0x10] & ~(1 << n)) | (((x >> 8) & 1) << n);
+		_vic[n * 2 + 1] = y & 0xFF;
+	}
 	/** Puts the next disk in the drive, as the player would. */
 	void flipDisk() { if (_disks.size() > 1) _currentDisk = (_currentDisk + 1) % _disks.size(); }
 
@@ -159,6 +172,7 @@ private:
 	uint8 _matrix[8];
 	Common::Array<TypedKey> _typing;
 	int _keyHold, _keyGap;
+	uint8 _joy1, _joy2;
 
 	Common::String _status;
 	uint _statusPos;
@@ -174,6 +188,7 @@ private:
 	// Polarware's fast loader: the sector chain it is streaming
 	int _chainTrack, _chainSector, _chainLeft;
 	bool polarwareTrap();
+	bool microzineTrap();
 	Common::String _driveCmd;
 	// The serial bus as LISTEN/SECOND/CIOUT and TALK/TKSA/ACPTR drive it
 	bool _iecListening, _iecOpening;

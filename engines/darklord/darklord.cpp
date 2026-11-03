@@ -50,8 +50,9 @@ static const byte kPalette[16 * 3] = {
 
 DarkLordEngine::DarkLordEngine(OSystem *syst, const ADGameDescription *desc) :
 		Engine(syst), _desc(desc), _machine(nullptr), _apple(nullptr), _speaker(nullptr), _sid(nullptr),
-		_cheat(false), _snapshotLine(0) {
+		_cheat(false), _snapshotLine(0), _uninvited(false), _touching(false), _fireFrames(0) {
 	_gameId = desc->gameId;
+	_uninvited = _gameId == "uninvitedc64";
 }
 
 DarkLordEngine::~DarkLordEngine() {
@@ -163,6 +164,9 @@ void DarkLordEngine::typeChar(int ch) {
 	else
 		onTypedKey(ch);
 }
+
+// Uninvited's start-up runs by itself until then
+static const uint32 kUninvitedBootFrames = 1600;
 
 // --- Helpers for the C64 games ---
 
@@ -365,9 +369,61 @@ Common::Error DarkLordEngine::loadGameStream(Common::SeekableReadStream *stream)
 	return Common::kNoError;
 }
 
+// --- Uninvited ---
+
+// The pointer is sprite 0, its tip at its top left; the sprite's position
+// is 24 right and 50 down of the screen pixel it points at. The game keeps
+// its own copy: the sprite's position at $0E (x, low), $10 (x, high) and
+// $0F (y), and the screen pixel at $38 (y) and $39 (x / 2).
+void DarkLordEngine::pointerTo(Common::Point p) {
+	_touch = Common::Point(CLIP<int16>(p.x, 0, 316), CLIP<int16>(p.y, 0, Machine::kScreenH - 1));
+	placePointer();
+}
+
+void DarkLordEngine::placePointer() {
+	const int sx = _touch.x + 24, sy = _touch.y + 50;
+	_machine->setSprite(0, sx, sy);
+	_machine->poke(0x0E, sx & 0xFF);
+	_machine->poke(0x10, sx >> 8);
+	_machine->poke(0x0F, sy);
+	_machine->poke(0x38, _touch.y);
+	_machine->poke(0x39, _touch.x / 2);
+}
+
+// Starting up: the crack's intro (a key), then "PLEASE INSERT SIDE TWO AND
+// PRESS RETURN" - always at the same moment, the machine being exact. Run
+// fast meanwhile, the player has nothing to do.
+void DarkLordEngine::runUninvitedBoot() {
+	const uint32 f = _machine->frameCount();
+	_machine->setJoystick(1, f >= 300 && f < 310 ? 16 : 0);
+	if (f == 1400)
+		_machine->flipDisk();
+	if (f == 1500)
+		_machine->typeChar('\r');
+}
+
 bool DarkLordEngine::handleEvents() {
 	Common::Event event;
 	while (g_system->getEventManager()->pollEvent(event)) {
+		if (_uninvited && _machine && _machine->frameCount() > kUninvitedBootFrames) {
+			switch (event.type) {
+			case Common::EVENT_LBUTTONDOWN:
+				pointerTo(event.mouse);
+				_touching = true;
+				_fireFrames = 4; // (a quick tap still holds it long enough to count)
+				break;
+			case Common::EVENT_MOUSEMOVE:
+				// dragging - or, in touchpad mode, just pointing
+				pointerTo(event.mouse);
+				break;
+			case Common::EVENT_LBUTTONUP:
+				pointerTo(event.mouse);
+				_touching = false;
+				break;
+			default:
+				break;
+			}
+		}
 		if (event.type != Common::EVENT_KEYDOWN)
 			continue;
 		switch (event.kbd.keycode) {
@@ -434,7 +490,8 @@ Common::Error DarkLordEngine::run() {
 	}
 
 	// A text adventure: keep the on-screen keyboard up where there is one
-	if (g_system->hasFeature(OSystem::kFeatureVirtualKeyboard))
+	// (not for Uninvited: it's played by pointing)
+	if (!_uninvited && g_system->hasFeature(OSystem::kFeatureVirtualKeyboard))
 		g_system->setFeatureState(OSystem::kFeatureVirtualKeyboard, true);
 
 	if (ConfMan.hasKey("save_slot"))
@@ -445,6 +502,22 @@ Common::Error DarkLordEngine::run() {
 		if (_apple) {
 			_apple->runFrame();
 			_apple->render((byte *)_screen.getPixels(), _screen.pitch);
+		} else if (_uninvited) {
+			// several frames at a time while it starts up
+			const int n = _machine->frameCount() < kUninvitedBootFrames ? 6 : 1;
+			for (int i = 0; i < n; i++) {
+				if (_machine->frameCount() <= kUninvitedBootFrames)
+					runUninvitedBoot();
+				else {
+					if (_touching)
+						placePointer();
+					_machine->setJoystick(2, _touching || _fireFrames > 0 ? 16 : 0);
+					if (_fireFrames > 0)
+						_fireFrames--;
+				}
+				_machine->runFrame();
+			}
+			_machine->render((byte *)_screen.getPixels(), _screen.pitch);
 		} else {
 			_machine->runFrame();
 			runHelpers();

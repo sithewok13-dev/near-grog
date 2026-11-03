@@ -185,7 +185,7 @@ public:
 	}
 	/** The first other game found complete, or "". */
 	Common::String otherGame() const {
-		static const char *const kIds[] = { "transylvania84", "transylvania85", "transylvania85b", "crimsoncrownc64" };
+		static const char *const kIds[] = { "transylvania84", "transylvania85", "transylvania85b", "crimsoncrownc64", "uninvitedc64" };
 		for (const char *id : kIds)
 			if (gameFound(id))
 				return id;
@@ -194,7 +194,7 @@ public:
 	bool found() const { return c64Found() || appleFound() || !otherGame().empty(); }
 
 	static uint disksFor(const Common::String &id) {
-		return id == "crimsoncrownc64" ? 2 : 1;
+		return id == "crimsoncrownc64" || id == "uninvitedc64" ? 2 : 1;
 	}
 
 	/**
@@ -226,6 +226,19 @@ public:
 		if (diskName == "CROWNB") {
 			*disk = 1;
 			return "crimsoncrownc64";
+		}
+		// Uninvited (ICOM, 1988): side one has the loader; side two is raw
+		// game data, no directory, starting "GAME" then a run of 1s
+		if (has("UNINVITED") && has("ML"))
+			return "uninvitedc64";
+		if (img.size() >= 32 && !memcmp(img.data(), "GAME", 4)) {
+			bool ones = true;
+			for (int k = 4; k < 32; k++)
+				ones &= img[k] == 1;
+			if (ones) {
+				*disk = 1;
+				return "uninvitedc64";
+			}
 		}
 		return "";
 	}

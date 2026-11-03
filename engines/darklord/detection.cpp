@@ -31,6 +31,7 @@ static const PlainGameDescriptor darkLordGames[] = {
 	{ "transylvania85", "Transylvania (1985)" },
 	{ "transylvania85b", "Transylvania (1985, other graphics)" },
 	{ "crimsoncrownc64", "Crimson Crown" },
+	{ "uninvitedc64", "Uninvited" },
 	{ nullptr, nullptr }
 };
 
@@ -66,7 +67,8 @@ static const ADGameDescription otherC64Games[] = {
 	OTHER_C64_GAME("transylvania84"),
 	OTHER_C64_GAME("transylvania85"),
 	OTHER_C64_GAME("transylvania85b"),
-	OTHER_C64_GAME("crimsoncrownc64")
+	OTHER_C64_GAME("crimsoncrownc64"),
+	OTHER_C64_GAME("uninvitedc64")
 };
 
 static const ADGameDescription fallbackDescription = {

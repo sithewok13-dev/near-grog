@@ -56,6 +56,8 @@ enum {
 	kTrapCintBody = 0xFF5B,
 	kTrapIoinit = 0xFF84,
 	kTrapRestor = 0xFF8A,
+	kTrapIoinitBody = 0xFDA3,
+	kTrapRestorBody = 0xFD15,
 	// Screen editor routines programs call directly
 	kTrapClearScreen = 0xE544,
 	kTrapHome = 0xE566,
@@ -120,7 +122,7 @@ static void skipDiskFlip(Common::Array<byte> &data, const Common::Array<int> &wh
 
 Machine::Machine(MachineHost *host) : _host(host), _cpu(this), _currentDisk(0), _raster(0), _lineCycles(0),
 		_rasterCmp(0), _vicIrq(0), _stall(0), _denLatched(false), _timerA(0x4025), _timerALatch(0x4025), _cia1IcrMask(0),
-		_cia1Icr(0), _frame(0), _keyHold(0), _keyGap(0), _status(kStatusOk), _statusPos(0),
+		_cia1Icr(0), _frame(0), _keyHold(0), _keyGap(0), _joy1(0), _joy2(0), _status(kStatusOk), _statusPos(0),
 		_inLfn(0), _outLfn(0), _lineReady(false), _iecListening(false), _iecOpening(false),
 		_iecSa(0), _iecTalkSa(15), _kernalKeyboard(false) {
 	for (int i = 0; i < 16; i++) {
@@ -232,7 +234,7 @@ bool Machine::boot() {
 	}
 	if (!_files.contains("DL")) {
 		// Other games: the boot program as LOAD"*",8,1 and RUN would start it
-		static const char *const kBoot[] = { "B", "CRIMSON CROWN", "TRANSYLVANIA" };
+		static const char *const kBoot[] = { "B", "CRIMSON CROWN", "TRANSYLVANIA", "UNINVITED" };
 		for (const char *name : kBoot) {
 			if (!_files.contains(name) || _files[name].size() < 4)
 				continue;
@@ -240,6 +242,11 @@ bool Machine::boot() {
 			uint16 la = prg[0] | (prg[1] << 8);
 			for (uint i = 2; i < prg.size(); i++)
 				_ram[(uint16)(la + i - 2)] = prg[i];
+			// LOAD leaves the end address in $AE/$AF (and BASIC's in $2D/$2E):
+			// packed programs read it to unpack themselves
+			const uint16 end = la + prg.size() - 2;
+			_ram[0xAE] = end & 0xFF; _ram[0xAF] = end >> 8;
+			if (la == 0x0801) { _ram[0x2D] = _ram[0x2F] = _ram[0x31] = end & 0xFF; _ram[0x2E] = _ram[0x30] = _ram[0x32] = end >> 8; }
 			_ram[0] = 0x2F;
 			_ram[1] = 0x37;
 			_ram[0xBA] = 8;
@@ -386,9 +393,9 @@ uint8 Machine::ioRead(uint16 a) {
 		int r = a & 15;
 		switch (r) {
 		case 0x00:
-			return 0xFF;
+			return 0xFF & ~_joy2;
 		case 0x01:
-			return keyboardRows(_cia1[0]);
+			return keyboardRows(_cia1[0]) & ~_joy1;
 		case 0x04:
 			return _timerA & 0xFF;
 		case 0x05:
@@ -796,6 +803,7 @@ bool Machine::trap() {
 		// Screen editor start-up: the VIC as the KERNAL leaves it, a clear
 		// screen in light blue on blue
 		_vic[0x11] = 0x1B;
+		_vic[0x1A] = 0; // no raster interrupts
 		_vic[0x16] = 0xC8;
 		_vic[0x18] = 0x15;
 		_vic[0x20] = 14;
@@ -808,6 +816,7 @@ bool Machine::trap() {
 		rts();
 		return true;
 	case kTrapIoinit:
+	case kTrapIoinitBody:
 		_cia2[0] = (_cia2[0] & ~3) | 3;
 		_cia1IcrMask = 0x01;
 		_timerALatch = 0x4025;
@@ -815,6 +824,7 @@ bool Machine::trap() {
 		rts();
 		return true;
 	case kTrapRestor:
+	case kTrapRestorBody:
 		_ram[0x0314] = 0x31; _ram[0x0315] = 0xEA;
 		_ram[0x0316] = 0x66; _ram[0x0317] = 0xFE;
 		_ram[0x0318] = 0x47; _ram[0x0319] = 0xFE;
@@ -1194,6 +1204,82 @@ void Machine::driveCommand(const Common::String &command) {
 // routine that sends the track, sector and count and receives the first
 // sector, and the one that receives each next sector of the chain. Both
 // land in a 256-byte buffer the routine's code points at.
+// Uninvited (and its Mindscape C64 siblings) talk to their own drive code
+// through $36C2 (read: track $61, sector $62, offset $93, count $5A/$5B, to
+// $5E/$5F) and $3747 (write). The drive steps one sector at a time, to the
+// next track at the end of one. Answered here from the disk image.
+bool Machine::microzineTrap() {
+	static const byte kRead[] = { 0x20, 0x53, 0x38, 0x90, 0x03, 0x4C, 0xE7, 0x37, 0xA9, 0x02 };
+	static const byte kWrite[] = { 0x20, 0x53, 0x38, 0x90, 0x03, 0x4C, 0xE7, 0x37, 0xA9, 0x03 };
+	static const byte kUpload[] = { 0xA9, 0x00, 0x85, 0x03, 0x85, 0x04, 0x85, 0x05, 0x85, 0x06, 0x85, 0x07, 0x85, 0x60, 0x20, 0x05, 0x76 };
+	const uint16 pc = _cpu.pc;
+	if (pc != 0x36C5 && pc != 0x374A && pc != 0x757D && pc != 0x3853 && pc != 0x38D9 && pc != 0x38A9)
+		return false;
+	if (mapOf(pc) != kMapRam || memcmp(&_ram[0x36C5], kRead, sizeof(kRead)) != 0 ||
+			memcmp(&_ram[0x374A], kWrite, sizeof(kWrite)) != 0)
+		return false;
+	if (pc == 0x757D) {
+		if (memcmp(&_ram[0x757D], kUpload, sizeof(kUpload)) != 0)
+			return false;
+		rts();
+		return true;
+	}
+	if (pc == 0x3853) { // drive ready
+		_cpu.p &= ~Cpu6502::kFlagC;
+		rts();
+		return true;
+	}
+	if (pc == 0x38D9) { // a byte to the drive
+		rts();
+		return true;
+	}
+	if (pc == 0x38A9) { // a byte from the drive: "done"
+		_cpu.a = 1;
+		rts();
+		return true;
+	}
+	if (_disks.empty())
+		return false;
+	const Common::Array<byte> &disk = _disks[_currentDisk];
+	int track = _ram[0x61], sector = _ram[0x62], off = _ram[0x93];
+	uint count = _ram[0x5A] | (_ram[0x5B] << 8);
+	uint16 dst = _ram[0x5E] | (_ram[0x5F] << 8);
+	const bool write = pc == 0x374A;
+	debug(2, "DarkLord: %s T%d S%d +%d count %u at $%04X disk %u", write ? "write" : "read", track, sector, off, count, dst, _currentDisk);
+	if (count == 0)
+		count = 0x10000;
+	byte sec[256];
+	while (count) {
+		int o = sectorOffset(track, sector);
+		bool valid = o >= 0 && o + 256 <= (int)disk.size();
+		Common::Array<byte> data;
+		if (_host && _host->diskLoad(Common::String::format("D%uT%02dS%02d", _currentDisk, track, sector), data) && data.size() == 256)
+			memcpy(sec, data.data(), 256);
+		else
+			for (int i = 0; i < 256; i++)
+				sec[i] = valid ? disk[o + i] : 0;
+		for (; off < 256 && count; off++, count--, dst++) {
+			if (write)
+				sec[off] = _ram[dst];
+			else
+				_ram[dst] = sec[off];
+		}
+		if (write && _host)
+			_host->diskSave(Common::String::format("D%uT%02dS%02d", _currentDisk, track, sector), Common::Array<byte>(sec, 256));
+		off = 0;
+		if (++sector >= (track < 18 ? 21 : track < 25 ? 19 : track < 31 ? 18 : 17)) {
+			sector = 0;
+			track++;
+		}
+	}
+	_ram[0x5A] = _ram[0x5B] = 0;
+	_ram[0x5E] = dst & 0xFF;
+	_ram[0x5F] = dst >> 8;
+	_cpu.p &= ~Cpu6502::kFlagC;
+	rts();
+	return true;
+}
+
 bool Machine::polarwareTrap() {
 	static const byte kStart[] = { 0x2C, -1 & 0xFF, -1 & 0xFF, 0x10, 0x08, 0x20 };
 	static const byte kNext[] = { 0xA0, 0x00, 0x78, 0xA9, 0x0B, 0x8D, 0x00, 0xDD, 0xAD, 0x00, 0xDD, 0x10, 0xFB };
@@ -1427,7 +1513,7 @@ void Machine::runFrame() {
 			guard -= cycles;
 			continue;
 		}
-		if ((mapOf(_cpu.pc) == kMapKernal && trap()) || loaderTrap() || os64Trap() || polarwareTrap())
+		if ((mapOf(_cpu.pc) == kMapKernal && trap()) || loaderTrap() || os64Trap() || polarwareTrap() || microzineTrap())
 			cycles = 6;
 		else
 			cycles = _cpu.step();

@@ -92,6 +92,15 @@ private:
 	Common::Array<byte> _snapshot;
 	uint _snapshotLine;
 	Common::StringArray _deathTexts;
+	// Uninvited: a mouse game. A touch puts its pointer (sprite 0) there and
+	// holds the button (port 2's fire) while the finger is down.
+	bool _uninvited;
+	bool _touching;
+	int _fireFrames;          // frames left to hold the button after a quick tap
+	Common::Point _touch;     // C64 screen pixels
+	void pointerTo(Common::Point p);
+	void placePointer();
+	void runUninvitedBoot();
 	void setUpGameHelpers();
 	void onTypedKey(int ch);
 	void runHelpers();
