@@ -122,15 +122,24 @@ private:
 		bool active;
 		Common::Point target;
 		int still, frames, aFrames;
+		uint8 lead;  // a press to make first
 		Common::Point last;
 	} _goal;
+	bool _haveNext;            // a second place to go once there (MOVE, then the exit)
+	Common::Point _next;
+	uint8 _nextLead;
+	int _flashVerb;            // the verb just tapped, lit for a moment
+	uint32 _flashUntil;
+	int selectedVerb() const;
+	Common::Rect moveMapRect() const;
+	Common::Point moveTarget(Common::Point nes) const;  // the game's chosen verb (its marker filled in), or -1
 	uint8 _pad;
 	int _continueFrames;
 
 	// Title and menu screens (not the play screen): the whole NES screen and
 	// an NES pad
 	bool _fullMode;
-	Common::Rect _fullBox, _fullMenu, _padRects[8];
+	Common::Rect _fullBox, _fullMenu, _fullBack, _fullPad, _padRects[8];
 	uint8 _padHeld, _padLast;
 	int _padTouch, _padLinger;
 	bool _padShown;            // the pad, after a long press

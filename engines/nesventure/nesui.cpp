@@ -46,7 +46,7 @@ const NesItem kShadowgateVerbs[] = {
 	{ "LOOK", 12, 21 }, { "TAKE", 18, 21 }, { "OPEN", 12, 23 },
 	{ "CLOSE", 18, 23 }, { "USE", 12, 25 }, { "HIT", 18, 25 },
 	{ "SELF", 24, 25 }, { "LEAVE", 12, 27 }, { "SPEAK", 18, 27 },
-	{ "SAVE", 24, 27 }, { "CARD up", 24, 21 }, { "CARD down", 24, 23 }
+	{ "MOVE", 4, 20 }, { "SAVE", 24, 27 }, { "CARD up", 24, 21 }, { "CARD down", 24, 23 }
 };
 const NesItem kDejaVuVerbs[] = {
 	{ "EXAM.", 3, 21 }, { "OPEN", 10, 21 }, { "TAKE", 10, 23 },
@@ -73,7 +73,7 @@ bool isBlank(byte t) { return t == 0x7E || t == 0x7F || t == 0xDE || t == 0xDF; 
 
 NesUI::NesUI(Nes *nes, GameId game) : _nes(nes), _game(game), _map(&kMaps[game]), _w(0), _h(0), _portrait(false),
 		_look(kLookNes), _textMode(false), _haveSnapshot(false), _textFg(0x0F), _textBg(0x30), _haveTextColours(false), _verbPaper(0x30), _commandFrames(0),
-		_scroll(0), _pad(0), _continueFrames(0), _pressButton(-1), _pressTime(0), _holdFired(false), _lastSignature(0), _drawn(false), _fullMode(false), _padHeld(0), _padTouch(-1), _padLast(0), _padLinger(0), _padShown(false), _fullStartTime(0), _fullTouching(false), _fullConsumed(false), _tapWait(0), _tapSig(0) {
+		_scroll(0), _pad(0), _continueFrames(0), _pressButton(-1), _pressTime(0), _holdFired(false), _lastSignature(0), _drawn(false), _fullMode(false), _padHeld(0), _padTouch(-1), _padLast(0), _padLinger(0), _padShown(false), _fullStartTime(0), _fullTouching(false), _fullConsumed(false), _tapWait(0), _tapSig(0), _haveNext(false), _nextLead(0), _flashVerb(-1), _flashUntil(0) {
 	memset(_snapshot, 0, sizeof(_snapshot));
 	memset(_pal, 0, sizeof(_pal));
 	_goal.active = false;
@@ -162,6 +162,8 @@ void NesUI::layout() {
 		_padRects[6] = Common::Rect(rx - 90, cy + 110, rx + 90, cy + 160);                    // START
 		_padRects[7] = Common::Rect(rx - 90, cy + 170, rx + 90, cy + 220);                    // SELECT
 		_fullMenu = Common::Rect(_w - 54 - 140, 14, _w - 54, 64);
+		_fullBack = Common::Rect(_fullMenu.left, _h - 64, _fullMenu.right, _h - 14);
+		_fullPad = Common::Rect(_fullMenu.left, _fullBack.top - 60, _fullMenu.right, _fullBack.top - 10);
 	} else {
 		const int w = _w - 48, h = w * 240 / 256;
 		_fullBox = Common::Rect(24, 80, 24 + w, 80 + h);
@@ -175,6 +177,8 @@ void NesUI::layout() {
 		_padRects[6] = Common::Rect(_w / 2 - 210, cy + 200, _w / 2 - 10, cy + 260);
 		_padRects[7] = Common::Rect(_w / 2 + 10, cy + 200, _w / 2 + 210, cy + 260);
 		_fullMenu = Common::Rect(_w - 24 - 140, 20, _w - 24, 70);
+		_fullPad = Common::Rect(_fullMenu.left - 150, 20, _fullMenu.left - 10, 70);
+		_fullBack = Common::Rect(_fullPad.left - 150, 20, _fullPad.left - 10, 70);
 	}
 	_fullBig = _fullBox;
 	if (_portrait)
@@ -200,6 +204,40 @@ void NesUI::layout() {
 
 Common::Point NesUI::itemPoint(const NesItem &it) const {
 	return Common::Point(it.col * 8 + 4, rowY(it.row) + 4);
+}
+
+// The chosen verb's marker is filled in: the one marker unlike the rest
+int NesUI::selectedVerb() const {
+	const uint n = _map->verbCount;
+	if (n < 3)
+		return -1;
+	byte t[32];
+	for (uint i = 0; i < n && i < 32; i++)
+		t[i] = _nes->ppuPeek(0x2000 + _map->verbs[i].row * 32 + _map->verbs[i].col);
+	// the usual (empty) marker: the commonest
+	byte usual = t[0];
+	int best = 0;
+	for (uint i = 0; i < n; i++) {
+		int c = 0;
+		for (uint k = 0; k < n; k++)
+			c += t[k] == t[i];
+		if (c > best) {
+			best = c;
+			usual = t[i];
+		}
+	}
+	int found = -1;
+	for (uint i = 0; i < n; i++) {
+		const Common::String name(_map->verbs[i].name);
+		if (name.hasSuffix("<") || name.hasSuffix(">") || name.hasSuffix(" up") || name.hasSuffix(" down"))
+			continue; // the page arrows aren't verbs
+		if (t[i] != usual) {
+			if (found >= 0)
+				return -1; // not one alone: can't tell
+			found = i;
+		}
+	}
+	return found;
 }
 
 Common::Rect NesUI::itemRect(const NesItem &it) const {
@@ -305,6 +343,7 @@ void NesUI::steerTo(Common::Point nes) {
 	_goal.frames = 0;
 	_goal.aFrames = 0;
 	_goal.last = Common::Point(-1, -1);
+	_goal.lead = 0;
 }
 
 // One direction at a time (the games ignore diagonals); A once there - or
@@ -318,8 +357,25 @@ void NesUI::steer() {
 	const int dx = _goal.target.x - p.x, dy = _goal.target.y - p.y;
 	if (_goal.aFrames) {
 		_pad = Nes::kA;
-		if (--_goal.aFrames == 0)
+		if (--_goal.aFrames == 0) {
 			_goal.active = false;
+			if (_haveNext) {
+				_haveNext = false;
+				const uint8 lead = _nextLead;
+				steerTo(_next);
+				_goal.lead = lead;
+				_goal.frames = lead ? -8 : -4; // (let A go first)
+			}
+		}
+		return;
+	}
+	if (_goal.frames < 0) {
+		_goal.frames++;
+		// a first press to make (into the exits map: down from MOVE)
+		if (_goal.frames > -3 && _goal.lead)
+			_pad = _goal.lead;
+		if (_goal.frames == 0)
+			_goal.lead = 0;
 		return;
 	}
 	if (ABS(dx) <= 2 && ABS(dy) <= 2) {
@@ -485,6 +541,11 @@ NesUI::Action NesUI::press(Common::Point p) {
 		_fullTouching = true;
 		_fullConsumed = false;
 		_padTouch = -1;
+		if (_fullBack.contains(p) || _fullPad.contains(p) || _fullMenu.contains(p)) {
+			_fullConsumed = true; // a button, not a long press
+			_pressButton = -1;
+			return kNone;
+		}
 		if (_padShown) {
 			static const uint8 kBits[8] = { Nes::kUp, Nes::kDown, Nes::kLeft, Nes::kRight, Nes::kA, Nes::kB, Nes::kStart, Nes::kSelect };
 			for (int i = 0; i < 8; i++) {
@@ -526,6 +587,18 @@ NesUI::Action NesUI::release(Common::Point p) {
 		_fullTouching = false;
 		if (_fullMenu.contains(p) && _fullMenu.contains(_fullStart))
 			return kTray;
+		if (_fullMenu.contains(_fullStart))
+			return kNone;
+		if (_fullBack.contains(_fullStart)) {
+			if (_fullBack.contains(p))
+				padPress(Nes::kB);
+			return kNone;
+		}
+		if (_fullPad.contains(_fullStart)) {
+			if (_fullPad.contains(p))
+				_padShown = !_padShown;
+			return kNone;
+		}
 		if (_padHeld) { // a pad button
 			padPress(_padHeld);
 			_padHeld = 0;
@@ -577,6 +650,10 @@ NesUI::Action NesUI::release(Common::Point p) {
 	}
 	for (uint i = 0; i < _verbCells.size(); i++)
 		if (_verbCells[i].contains(p)) {
+			_flashVerb = i;
+			_flashUntil = g_system->getMillis() + 250;
+			_haveNext = false;
+			_nextLead = 0;
 			steerTo(itemPoint(_map->verbs[i]));
 			return kNone;
 		}
@@ -593,9 +670,22 @@ NesUI::Action NesUI::release(Common::Point p) {
 		return kNone;
 	}
 	if (_moveBox.contains(p)) {
-		const Common::Rect in(_moveBox.left + 6, _moveBox.top + 30, _moveBox.right - 6, _moveBox.bottom - 6);
-		if (in.contains(p))
-			steerTo(toNes(in, _map->moveBox, p));
+		const Common::Rect in = moveMapRect();
+		if (in.contains(p)) {
+			// Shadowgate and Deja Vu go by their MOVE command: choose it, then the exit
+			_haveNext = false;
+			for (int i = 0; i < _map->verbCount; i++)
+				if (!strcmp(_map->verbs[i].name, "MOVE")) {
+					steerTo(itemPoint(_map->verbs[i]));
+					_haveNext = true;
+					_next = moveTarget(toNes(in, _map->moveBox, p));
+					_nextLead = Nes::kDown; // from MOVE into the map
+					_flashVerb = i;
+					_flashUntil = g_system->getMillis() + 250;
+				}
+			if (!_haveNext)
+				steerTo(moveTarget(toNes(in, _map->moveBox, p)));
+		}
 		return kNone;
 	}
 	if (_textBox.contains(p))
@@ -817,7 +907,9 @@ void NesUI::drawVerbs() {
 			for (uint k = 1; k < label.size(); k++)
 				if (label[k] >= 'A' && label[k] <= 'Z' && label[k - 1] != ' ')
 					label.setChar(label[k] - 'A' + 'a', k);
-			roundRect(c, 16, rgb(40, 40, 48), rgb(200, 200, 210));
+			const bool flash = (int)i == _flashVerb && g_system->getMillis() < _flashUntil;
+			const bool chosen = (int)i == selectedVerb();
+			roundRect(c, 16, flash ? rgb(110, 160, 230) : chosen ? rgb(60, 120, 200) : rgb(40, 40, 48), rgb(200, 200, 210));
 			const Graphics::Font *f = font(_portrait ? 20 : 18, true, false);
 			text(label, c.left, c.top + (c.height() - (f ? f->getFontHeight() : 16)) / 2, c.width(), rgb(255, 255, 255), f, true);
 			continue;
@@ -825,6 +917,12 @@ void NesUI::drawVerbs() {
 		// The game's own label, from its screen, on its panel colour; the
 		// markers lined up down each column (the widest label centred)
 		const Common::Rect from = itemRect(it);
+		if ((int)i == _flashVerb && g_system->getMillis() < _flashUntil) {
+			// just tapped: a thick edge for a moment
+			Common::Rect g = c;
+			g.grow(3);
+			roundRect(g, 9, _pal[_verbPaper], _pal[_verbPaper]);
+		}
 		roundRect(c, 6, _pal[_verbPaper], _pal[_textFg]);
 		int sc = MIN<int>(3, (c.height() - 8) / 8), widest = 0;
 		for (uint k = i % 3; k < MIN<uint>(9, _verbCells.size()); k += 3)
@@ -999,14 +1097,30 @@ void NesUI::drawShelf() {
 		text("EXITS", m.left + 12, m.top + 8, m.width() - 20, rgb(200, 200, 210), font(15, true, false));
 	else
 		nesText("MOVE", m.left + 12, m.top + 8, 2, _pal[_textFg]);
+	const Common::Rect to = moveMapRect();
+	if (!to.isEmpty())
+		blitNes(src, _map->moveBox, to);
+}
+
+// The pointer can't reach the map's very edges (Shadowgate's stops 12
+// pixels in at the top, where the north exit is drawn): aim within reach
+Common::Point NesUI::moveTarget(Common::Point nes) const {
+	if (_game != kGameShadowgate)
+		return nes;
+	const Common::Rect &mb = _map->moveBox;
+	return Common::Point(CLIP<int16>(nes.x, mb.left + 19, mb.right - 9), CLIP<int16>(nes.y, mb.top + 12, mb.bottom - 11));
+}
+
+// Where the exits map is drawn (whole-number scale, centred in its box)
+Common::Rect NesUI::moveMapRect() const {
+	const Common::Rect &m = _moveBox;
 	const Common::Rect min(m.left + 6, m.top + 30, m.right - 6, m.bottom - 6);
 	const Common::Rect &mb = _map->moveBox;
 	const int sc = MIN(min.width() / mb.width(), min.height() / mb.height());
-	if (sc > 0) {
-		const Common::Rect to(min.left + (min.width() - mb.width() * sc) / 2, min.top + (min.height() - mb.height() * sc) / 2,
-			min.left + (min.width() - mb.width() * sc) / 2 + mb.width() * sc, min.top + (min.height() - mb.height() * sc) / 2 + mb.height() * sc);
-		blitNes(src, mb, to);
-	}
+	if (sc <= 0)
+		return Common::Rect();
+	const int l = min.left + (min.width() - mb.width() * sc) / 2, t = min.top + (min.height() - mb.height() * sc) / 2;
+	return Common::Rect(l, t, l + mb.width() * sc, t + mb.height() * sc);
 }
 
 // Title and menu screens: the NES screen, an NES pad, MENU
@@ -1018,6 +1132,11 @@ void NesUI::drawFull() {
 	roundRect(_fullMenu, 14, fill0, edge0);
 	const Graphics::Font *mf = font(16, true, false);
 	text("MENU", _fullMenu.left, _fullMenu.top + (_fullMenu.height() - (mf ? mf->getFontHeight() : 16)) / 2, _fullMenu.width(), rgb(255, 255, 255), mf, true);
+	// BACK (the B button: out of the game's own menus) and the pad
+	roundRect(_fullBack, 14, fill0, edge0);
+	text("BACK", _fullBack.left, _fullBack.top + (_fullBack.height() - (mf ? mf->getFontHeight() : 16)) / 2, _fullBack.width(), rgb(255, 255, 255), mf, true);
+	roundRect(_fullPad, 14, _padShown ? rgb(60, 120, 200) : fill0, edge0);
+	text("PAD", _fullPad.left, _fullPad.top + (_fullPad.height() - (mf ? mf->getFontHeight() : 16)) / 2, _fullPad.width(), rgb(255, 255, 255), mf, true);
 	if (!_padShown)
 		return;
 	static const char *const kLabels[8] = { "", "", "", "", "A", "B", "START", "SELECT" };
@@ -1056,6 +1175,8 @@ uint32 NesUI::signature() const {
 	h ^= _history.size() * 7919 + pageLen * 31 + _scroll * 131 + (_pressButton + 1) * 977 + _holdFired * 3 + _look * 5 + _textMode * 11;
 	if (_pressButton >= 0 && !_holdFired)
 		h ^= g_system->getMillis(); // the hold ring fills
+	if (_flashVerb >= 0 && g_system->getMillis() < _flashUntil)
+		h ^= 0x5bd1e995u + _flashVerb; // a verb lit for a moment
 	return h;
 }
 

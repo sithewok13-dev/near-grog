@@ -21,6 +21,7 @@
 #define FORBIDDEN_SYMBOL_ALLOW_ALL
 
 #include "backends/graphics/ios/ios-graphics.h"
+#include "common/config-manager.h"
 #include "backends/graphics/ios/renderbuffer.h"
 #include "backends/graphics/opengl/pipelines/pipeline.h"
 #include "backends/platform/ios7/ios7_osys_main.h"
@@ -48,6 +49,8 @@ void iOSGraphicsManager::initSurface() {
 	handleResize(sys->getScreenWidth(), sys->getScreenHeight());
 
 	_old_touch_mode = kTouchModeTouchpad;
+	_touch3d = false;
+	_touchDomain.clear();
 
 	_rendering3d = (_renderer3d != nullptr);
 	// maybe in 3D, not in GUI
@@ -74,8 +77,19 @@ bool iOSGraphicsManager::loadVideoMode(uint requestedWidth, uint requestedHeight
 	if (_rendering3d != render3d) {
 		_rendering3d = render3d;
 	}
-	// 3D status may have changed: refresh the touch mode
-	applyTouchSettings();
+	// 3D status may have changed: refresh the touch mode. Near-Grog: but not
+	// when the same game just changes its size (turning the phone), which
+	// would undo the touch mode the player picked
+	const Common::String domain = ConfMan.getActiveDomainName();
+	if (domain.empty())
+		_touchDomain.clear(); // the launcher: the next game starts afresh
+	if ((_overlayVisible && _overlayInGUI) || domain.empty() || domain != _touchDomain || render3d != _touch3d) {
+		applyTouchSettings();
+		if (!(_overlayVisible && _overlayInGUI)) {
+			_touchDomain = domain;
+			_touch3d = render3d;
+		}
+	}
 
 
 	/* The iOS and tvOS video modes are always full screen */

@@ -23,6 +23,7 @@
 #define BACKENDS_GRAPHICS_IOS_IOS_GRAPHICS_H
 
 #include "common/scummsys.h"
+#include "common/str.h"
 #include <OpenGLES/ES2/gl.h>
 
 #include "backends/graphics/opengl/opengl-graphics.h"
@@ -57,6 +58,9 @@ protected:
 	void refreshScreen() override;
 
 	int _old_touch_mode;
+	// Near-Grog: the game (and 2D/3D) whose touch mode was last applied
+	Common::String _touchDomain;
+	bool _touch3d;
 	bool _rendering3d;
 	WindowedGraphicsManager::Insets _insets;
 };
