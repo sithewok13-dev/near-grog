@@ -56,7 +56,8 @@ enum {
 	kCmdCheatFirst = 0x100, // one per cheat, in kCheatKeys' order
 	kCmdUndoMove = 'undo',
 	kCmdHint = 'hint',
-	kCmdBack = 'back'
+	kCmdBack = 'back',
+	kCmdGameMenu = 'gmnu'
 };
 
 class TrayDialog : public GUI::Dialog {
@@ -201,6 +202,10 @@ void NearGrogTray::open(MacVentureEngine *vm) {
 			cmds.push_back(kCmdLook);
 			labels.push_back(Common::String::format("Button opacity: %d%%", ModernUI::configOpacity()));
 			cmds.push_back(kCmdOpacity);
+			if (vm->getGui()->isModern()) {
+				labels.push_back("Game menu");
+				cmds.push_back(kCmdGameMenu);
+			}
 			labels.push_back("Cheats");
 			cmds.push_back(kCmdCheats);
 			labels.push_back("ScummVM menu");
@@ -241,6 +246,10 @@ void NearGrogTray::open(MacVentureEngine *vm) {
 		case kCmdCheats:
 			openCheats(vm);
 			continue; // back to the tray
+		case kCmdGameMenu:
+			// the game's own (New, Open, Save, Clean up, Mess up, Quit)
+			vm->getGui()->getModern()->openGameMenu();
+			return;
 		case kCmdUndoMove:
 			if (vm->cheatUndoMove())
 				g_system->displayMessageOnOSD(Common::U32String("Move undone"));

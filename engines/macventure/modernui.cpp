@@ -673,7 +673,7 @@ bool ModernUI::processEvent(Common::Event &event) {
 				continueText();
 			break;
 		case kRegionButton:
-			if (inside && !_holdFired && now - _pressTime < (press.index < 2 ? kSaveHold : kMenuHold))
+			if (inside && !_holdFired && (press.index == 2 || now - _pressTime < kSaveHold))
 				buttonFired(press.index, false);
 			break;
 		case kRegionMaximize:
@@ -805,10 +805,8 @@ void ModernUI::buttonFired(int i, bool hold) {
 		break;
 	}
 	case 2:
-		if (hold)
-			_engine->openMainMenuDialog();
-		else
-			openGameMenu();
+		// MENU: the Near-Grog tray on a tap (the game's own menu is in it)
+		_engine->openMainMenuDialog();
 		break;
 	default:
 		break;
@@ -878,7 +876,7 @@ void ModernUI::updateHolds() {
 		return;
 	const uint32 held = g_system->getMillis() - _pressTime;
 	const int i = _press.index;
-	if ((i < 2 && held >= kSaveHold) || (i == 2 && held >= kMenuHold)) {
+	if (i < 2 && held >= kSaveHold) {
 		_holdFired = true;
 		buttonFired(i, true);
 	}
@@ -1371,7 +1369,7 @@ void ModernUI::drawButtons() {
 				bevel(r, held, 2);
 			textCentered(kTitleButtonLabels[i], r, dark ? rgb(255, 255, 255) : rgb(0, 0, 0), font(14, true));
 		}
-		if (held && !_holdFired) {
+		if (held && !_holdFired && i < 2) {
 			const float hold = i < 2 ? kSaveHold : kMenuHold;
 			drawHoldRing(r, _roundButtons, MIN(1.0f, (g_system->getMillis() - _pressTime) / hold));
 		}

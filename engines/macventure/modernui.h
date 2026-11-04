@@ -67,6 +67,8 @@ enum ModernLook {
 
 class ModernUI {
 public:
+	/** The game's own menu (New, Open, Save, Clean up, Mess up, Quit). */
+	void openGameMenu();
 	ModernUI(Gui *gui, MacVentureEngine *engine);
 	~ModernUI();
 
@@ -203,7 +205,6 @@ private:
 	void pressVerb(int i);
 	void continueText();
 	void buttonFired(int i, bool hold);
-	void openGameMenu();
 	void updateHolds();
 	void updateMomentum();
 	void pickUpFromShelf(Common::Point p);
