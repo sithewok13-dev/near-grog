@@ -25,6 +25,7 @@
 #include "audio/sid.h"
 #include "common/config-manager.h"
 #include "engines/neargrog.h"
+#include "engines/neargrog_cheats.h"
 #include "common/events.h"
 #include "common/file.h"
 #include "common/fs.h"
@@ -55,7 +56,7 @@ static const byte kPalette[16 * 3] = {
 
 DarkLordEngine::DarkLordEngine(OSystem *syst, const ADGameDescription *desc) :
 		Engine(syst), _desc(desc), _machine(nullptr), _apple(nullptr), _speaker(nullptr), _sid(nullptr),
-		_cheat(false), _snapshotLine(0), _uninvited(false), _touching(false), _fireFrames(0), _ui(nullptr), _menuClick(0) {
+		_cheat(false), _snapshotLine(0), _uninvited(false), _touching(false), _fireFrames(0), _ui(nullptr), _menuClick(0), _continueWait(0) {
 	memset(_c64Screen, 0, sizeof(_c64Screen));
 	_gameId = desc->gameId;
 	_uninvited = _gameId == "uninvitedc64";
@@ -434,6 +435,55 @@ void DarkLordEngine::applyLayout() {
 	_ui->setup(w, h, portrait, C64UI::configLook(), C64UI::configLayout(), _format);
 }
 
+// --- Uninvited's cheats (engines/neargrog_cheats.h) ---
+
+void DarkLordEngine::runCheats() {
+	// A touch on the game: a move may follow - its snapshot, and the
+	// countdowns held
+	if (_ui->takeMove() && !_ui->textHas("YOU HAVE LOST")) { // (not once dead: a snapshot of that is no use)
+		if (NearGrog::cheatOn("neargrog_cheat_undo") || NearGrog::cheatOn("neargrog_cheat_undomove")) {
+			Common::MemoryWriteStreamDynamic w(DisposeAfterUse::YES);
+			_machine->saveState(w);
+			_undo.push(Common::Array<byte>(w.getData(), w.size()), _ui->historySize());
+		}
+		if (NearGrog::cheatOn("neargrog_cheat_moves")) {
+			Common::Array<byte> mem(65536);
+			for (uint a = 0; a < 65536; a++)
+				mem[a] = _machine->peek(a);
+			Common::Array<uint32> where;
+			Common::Array<byte> value;
+			_countdowns.move(mem, where, value);
+			for (uint i = 0; i < where.size(); i++)
+				_machine->poke(where[i], value[i]);
+		}
+	}
+	// Death: "YOU HAVE LOST ... WOULD YOU LIKE TO HAVE ANOTHER TRY (Y/N)?"
+	if (_machine->frameCount() % 10 == 0 && NearGrog::cheatOn("neargrog_cheat_undo") && !_undo.empty() && _ui->textHas("YOU HAVE LOST"))
+		undoMove("That move would have killed you");
+	// Instant text: the page turned once it's written
+	if (NearGrog::cheatOn("neargrog_cheat_text") && _ui->waitingToContinue() && !_menuClick) {
+		if (++_continueWait > 30) {
+			_continueWait = 0;
+			_autoPoint = Common::Point(100, 4);
+			_menuClick = 6;
+		}
+	} else {
+		_continueWait = 0;
+	}
+}
+
+void DarkLordEngine::undoMove(const char *message) {
+	if (_undo.empty())
+		return;
+	const NearGrog::Snapshot s = _undo.pop();
+	Common::MemoryReadStream r(s.state.data(), s.state.size());
+	if (!_machine->loadState(r))
+		return;
+	_ui->truncateHistory(s.text);
+	_countdowns.reset();
+	g_system->displayMessageOnOSD(Common::U32String(message));
+}
+
 void DarkLordEngine::present() {
 	_ui->setLoading(_machine && _machine->frameCount() <= kUninvitedBootFrames);
 	if (!_ui->draw(_c64Screen))
@@ -459,50 +509,8 @@ void DarkLordEngine::quickLoad() {
 
 namespace {
 
-enum { kCmdLook = 'look', kCmdLayout = 'layt', kCmdGameMenu = 'gmnu', kCmdScummVM = 'smvm', kCmdResume = 'resm' };
+enum { kCmdLook = 'look', kCmdLayout = 'layt', kCmdGameMenu = 'gmnu', kCmdCheats = 'chts', kCmdUndo = 'undo', kCmdScummVM = 'smvm', kCmdResume = 'resm' };
 
-// Near-Grog's tray for Uninvited
-class TrayDialog : public GUI::Dialog {
-public:
-	TrayDialog() : GUI::Dialog(0, 0, 0, 0), _opened(g_system->getMillis()) {
-		const bool portrait = C64UI::portraitScreen();
-		Common::Array<Common::String> labels;
-		Common::Array<uint32> cmds;
-		labels.push_back(Common::String::format("Look: %s", C64UI::configLook() == C64UI::kLookDark ? "Dark" : "Commodore 64"));
-		cmds.push_back(kCmdLook);
-		if (!portrait) { // (portrait has the one layout)
-			labels.push_back(Common::String::format("Layout: %s", C64UI::layoutName(C64UI::configLayout())));
-			cmds.push_back(kCmdLayout);
-		}
-		labels.push_back("Game menu (?=)");
-		cmds.push_back(kCmdGameMenu);
-		labels.push_back("ScummVM menu");
-		cmds.push_back(kCmdScummVM);
-		labels.push_back("Resume");
-		cmds.push_back(kCmdResume);
-		const int n = labels.size();
-		const int sw = g_system->getOverlayWidth(), sh = g_system->getOverlayHeight();
-		const int fh = g_gui.getFontHeight();
-		const int bh = MAX(fh * 2, MIN(sw, sh) / 8), gap = bh / 4, margin = fh;
-		const int bw = MIN(MAX(MIN(sw, sh) / 2, fh * 12), sw - 40);
-		_w = margin * 2 + bw;
-		_h = margin * 2 + fh * 2 + n * (bh + gap);
-		_x = (sw - _w) / 2;
-		_y = MAX<int>(10, (sh - _h) / 2);
-		new GUI::StaticTextWidget(this, margin, margin, bw, fh + 4, Common::U32String("Near-Grog"), Graphics::kTextAlignCenter);
-		for (int i = 0; i < n; i++)
-			new GUI::ButtonWidget(this, margin, margin + fh * 2 + i * (bh + gap), bw, bh, Common::U32String(labels[i]), Common::U32String(), cmds[i]);
-	}
-	void handleCommand(GUI::CommandSender *sender, uint32 cmd, uint32 data) override {
-		if (g_system->getMillis() - _opened < 350) // a tap from the page before
-			return;
-		setResult(cmd);
-		close();
-	}
-
-private:
-	uint32 _opened;
-};
 
 } // End of anonymous namespace
 
@@ -515,8 +523,39 @@ void DarkLordEngine::openMainMenuDialog() {
 		uint32 cmd;
 		{
 			PauseToken pause = pauseEngine();
-			TrayDialog tray;
+			Common::Array<Common::String> labels;
+			Common::Array<uint32> cmds;
+			labels.push_back(Common::String::format("Look: %s", C64UI::configLook() == C64UI::kLookDark ? "Dark" : "Commodore 64"));
+			cmds.push_back(kCmdLook);
+			if (!C64UI::portraitScreen()) { // (portrait has the one layout)
+				labels.push_back(Common::String::format("Layout: %s", C64UI::layoutName(C64UI::configLayout())));
+				cmds.push_back(kCmdLayout);
+			}
+			labels.push_back("Game menu (?=)");
+			cmds.push_back(kCmdGameMenu);
+			labels.push_back("Cheats");
+			cmds.push_back(kCmdCheats);
+			if (NearGrog::cheatOn("neargrog_cheat_undomove") && !_undo.empty()) {
+				labels.push_back("Undo last move");
+				cmds.push_back(kCmdUndo);
+			}
+			labels.push_back("ScummVM menu");
+			cmds.push_back(kCmdScummVM);
+			labels.push_back("Resume");
+			cmds.push_back(kCmdResume);
+			NearGrog::TrayPage tray("Near-Grog", labels, cmds);
 			cmd = tray.runModal();
+		}
+		if (cmd == kCmdCheats) {
+			{
+				PauseToken pause = pauseEngine();
+				NearGrog::cheatsPage();
+			}
+			continue;
+		}
+		if (cmd == kCmdUndo) {
+			undoMove("Undone");
+			return;
 		}
 		if (cmd == kCmdLook) {
 			ConfMan.set("neargrog_look", C64UI::configLook() == C64UI::kLookDark ? "c64" : "dark");
@@ -533,8 +572,10 @@ void DarkLordEngine::openMainMenuDialog() {
 			present();
 			continue;
 		}
-		if (cmd == kCmdGameMenu)
+		if (cmd == kCmdGameMenu) {
+			_autoPoint = Common::Point(305, 8);
 			_menuClick = 8;
+		}
 		if (cmd == kCmdScummVM)
 			Engine::openMainMenuDialog();
 		return;
@@ -687,8 +728,9 @@ Common::Error DarkLordEngine::run() {
 							_fireFrames = 4; // (a quick tap still holds it long enough to count)
 					}
 					if (_menuClick) {
-						// the tray's "Game menu": a click on the game's ?= box
-						pointerTo(Common::Point(305, 8));
+						// a click by itself: the tray's "Game menu" (the
+						// game's ?= box), or Instant text's "continue"
+						pointerTo(_autoPoint);
 						_fireFrames = --_menuClick > 2 ? 2 : 0;
 					}
 					_touching = touching && button;
@@ -699,6 +741,8 @@ Common::Error DarkLordEngine::run() {
 				_machine->runFrame();
 				_machine->render(_c64Screen, 320);
 				_ui->frame(_c64Screen);
+				if (_machine->frameCount() > kUninvitedBootFrames)
+					runCheats();
 			}
 		} else {
 			_machine->runFrame();

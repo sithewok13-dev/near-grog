@@ -67,7 +67,7 @@ public:
 
 	/** Machine memory, for the layouts to read the game's state. */
 	uint8 peek(uint16 addr) { return addr < 0x2000 ? _ram[addr & 0x7FF] : addr >= 0x6000 && addr < 0x8000 ? _prgRam[addr - 0x6000] : 0; }
-	void poke(uint16 addr, uint8 v) { if (addr < 0x2000) _ram[addr & 0x7FF] = v; }
+	void poke(uint16 addr, uint8 v) { if (addr < 0x2000) _ram[addr & 0x7FF] = v; else if (addr >= 0x6000 && addr < 0x8000) _prgRam[addr - 0x6000] = v; }
 	/** The name tables, patterns and palette as the PPU sees them. */
 	uint8 ppuPeek(uint16 addr) { return ppuRead(addr); }
 	/** Which name table (0-3) line y of the last frame was drawn from. */

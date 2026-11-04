@@ -88,6 +88,11 @@ public:
 	/** A touch (screen coordinates); returns what the engine should do. */
 	Action press(Common::Point p);
 	void move(Common::Point p);
+	// For the cheats
+	bool takeMove() { bool m = _move; _move = false; return m; }
+	uint historySize() const { return _history.size(); }
+	void truncateHistory(uint n);
+	bool screenHas(const char *const *phrases, int n) const;
 	Action release(Common::Point p);
 	Action tick(); // holds that come due
 	void scroll(int lines);
@@ -145,6 +150,12 @@ private:
 	bool _textDrag, _dragged;  // a swipe in the text
 	int _dragScroll;
 	bool _dropPage;            // the page being read is left out of the history
+	bool _move;                // a touch that acts on the game (for the cheats)
+	int _pageStill;            // Instant text: frames the page hasn't grown
+	uint _pageLen;
+	bool _staleText;           // after an undo: the window's old text isn't read again
+	uint32 _staleSig;
+	uint32 textSignature() const;
 	int _flashVerb;            // the verb just tapped, lit for a moment
 	uint32 _flashUntil;
 	int selectedVerb() const;

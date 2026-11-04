@@ -21,9 +21,11 @@
 
 #include "common/config-manager.h"
 #include "engines/neargrog.h"
+#include "engines/neargrog_cheats.h"
 #include "common/events.h"
 #include "common/fs.h"
 #include "common/md5.h"
+#include "common/memstream.h"
 #include "common/savefile.h"
 #include "common/system.h"
 #include "audio/audiostream.h"
@@ -104,7 +106,7 @@ void NesVentureEngine::applyLayout() {
 // The Near-Grog tray (a hold on MENU, or the menu key)
 namespace {
 
-enum { kCmdLook = 'look', kCmdFrame = 'fram', kCmdScummVM = 'smvm', kCmdResume = 'resm' };
+enum { kCmdLook = 'look', kCmdFrame = 'fram', kCmdCheats = 'chts', kCmdUndo = 'undo', kCmdScummVM = 'smvm', kCmdResume = 'resm' };
 
 // The NES look's picture frame (neargrog_nes_frame): none (the default, the
 // biggest picture), a thin strip of the game's own frame, or all of it
@@ -113,47 +115,6 @@ const char *frameName() {
 	return f == "thin" ? "Thin" : f == "full" ? "Full" : "None";
 }
 
-class TrayDialog : public GUI::Dialog {
-public:
-	TrayDialog() : GUI::Dialog(0, 0, 0, 0), _opened(g_system->getMillis()) {
-		// (Dark has no frame round the picture, so no Picture frame then)
-		const bool dark = NesUI::configLook() == NesUI::kLookDark;
-		const Common::String all[] = {
-			Common::String::format("Look: %s", dark ? "Dark" : "NES"),
-			Common::String::format("Picture frame: %s", frameName()),
-			"ScummVM menu", "Resume"
-		};
-		const uint32 allCmds[] = { kCmdLook, kCmdFrame, kCmdScummVM, kCmdResume };
-		Common::Array<Common::String> labels;
-		Common::Array<uint32> cmds;
-		for (int i = 0; i < ARRAYSIZE(all); i++)
-			if (!(dark && allCmds[i] == kCmdFrame)) {
-				labels.push_back(all[i]);
-				cmds.push_back(allCmds[i]);
-			}
-		const int n = labels.size();
-		const int sw = g_system->getOverlayWidth(), sh = g_system->getOverlayHeight();
-		const int fh = g_gui.getFontHeight();
-		const int bh = MAX(fh * 2, MIN(sw, sh) / 8), gap = bh / 4, margin = fh;
-		const int bw = MIN(MAX(MIN(sw, sh) / 2, fh * 12), sw - 40);
-		_w = margin * 2 + bw;
-		_h = margin * 2 + fh * 2 + n * (bh + gap);
-		_x = (sw - _w) / 2;
-		_y = MAX<int>(10, (sh - _h) / 2);
-		new GUI::StaticTextWidget(this, margin, margin, bw, fh + 4, Common::U32String("Near-Grog"), Graphics::kTextAlignCenter);
-		for (int i = 0; i < n; i++)
-			new GUI::ButtonWidget(this, margin, margin + fh * 2 + i * (bh + gap), bw, bh, Common::U32String(labels[i]), Common::U32String(), cmds[i]);
-	}
-	void handleCommand(GUI::CommandSender *sender, uint32 cmd, uint32 data) override {
-		if (g_system->getMillis() - _opened < 350) // a tap from the page before
-			return;
-		setResult(cmd);
-		close();
-	}
-
-private:
-	uint32 _opened;
-};
 
 } // End of anonymous namespace
 
@@ -162,8 +123,39 @@ void NesVentureEngine::openMainMenuDialog() {
 		uint32 cmd;
 		{
 			PauseToken pause = pauseEngine();
-			TrayDialog tray;
+			// (Dark has no frame round the picture, so no Picture frame then)
+			const bool dark = NesUI::configLook() == NesUI::kLookDark;
+			Common::Array<Common::String> labels;
+			Common::Array<uint32> cmds;
+			labels.push_back(Common::String::format("Look: %s", dark ? "Dark" : "NES"));
+			cmds.push_back(kCmdLook);
+			if (!dark) {
+				labels.push_back(Common::String::format("Picture frame: %s", frameName()));
+				cmds.push_back(kCmdFrame);
+			}
+			labels.push_back("Cheats");
+			cmds.push_back(kCmdCheats);
+			if (NearGrog::cheatOn("neargrog_cheat_undomove") && !_undo.empty()) {
+				labels.push_back("Undo last move");
+				cmds.push_back(kCmdUndo);
+			}
+			labels.push_back("ScummVM menu");
+			cmds.push_back(kCmdScummVM);
+			labels.push_back("Resume");
+			cmds.push_back(kCmdResume);
+			NearGrog::TrayPage tray("Near-Grog", labels, cmds);
 			cmd = tray.runModal();
+		}
+		if (cmd == kCmdCheats) {
+			{
+				PauseToken pause = pauseEngine();
+				NearGrog::cheatsPage();
+			}
+			continue;
+		}
+		if (cmd == kCmdUndo) {
+			undoMove("Undone");
+			return;
 		}
 		if (cmd == kCmdLook) {
 			ConfMan.set("neargrog_look", NesUI::configLook() == NesUI::kLookDark ? "nes" : "dark");
@@ -183,6 +175,52 @@ void NesVentureEngine::openMainMenuDialog() {
 			Engine::openMainMenuDialog();
 		return;
 	}
+}
+
+// --- The cheats (engines/neargrog_cheats.h) ---
+
+namespace {
+// What the games say when you die (Shadowgate's reaper: "It's a sad thing
+// that your adventures have ended here!!")
+const char *const kDeathWords[] = { "SAD THING", "ENDED HERE", "YOU HAVE LOST", "GAME OVER", "YOU ARE DEAD", "YOU'RE DEAD" };
+}
+
+void NesVentureEngine::runCheats() {
+	// A touch that acts on the game: a move follows - its snapshot, and the
+	// counters held
+	if (_ui->takeMove() && !_ui->screenHas(kDeathWords, ARRAYSIZE(kDeathWords))) { // (not once dead)
+		if (NearGrog::cheatOn("neargrog_cheat_undo") || NearGrog::cheatOn("neargrog_cheat_undomove")) {
+			Common::MemoryWriteStreamDynamic w(DisposeAfterUse::YES);
+			_nes->saveState(w);
+			_undo.push(Common::Array<byte>(w.getData(), w.size()), _ui->historySize());
+		}
+		if (NearGrog::cheatOn("neargrog_cheat_moves")) {
+			// the console's RAM and the cartridge's
+			Common::Array<byte> mem(0x2800);
+			for (uint i = 0; i < 0x2800; i++)
+				mem[i] = _nes->peek(i < 0x800 ? i : 0x6000 + i - 0x800);
+			Common::Array<uint32> where;
+			Common::Array<byte> value;
+			_countdowns.move(mem, where, value);
+			for (uint i = 0; i < where.size(); i++)
+				_nes->poke(where[i] < 0x800 ? where[i] : 0x6000 + where[i] - 0x800, value[i]);
+		}
+	}
+	if (++_cheatFrame % 15 == 0 && NearGrog::cheatOn("neargrog_cheat_undo") && !_undo.empty() &&
+			_ui->screenHas(kDeathWords, ARRAYSIZE(kDeathWords)))
+		undoMove("That move would have killed you");
+}
+
+void NesVentureEngine::undoMove(const char *message) {
+	if (_undo.empty())
+		return;
+	const NearGrog::Snapshot s = _undo.pop();
+	Common::MemoryReadStream r(s.state.data(), s.state.size());
+	if (!_nes->loadState(r))
+		return;
+	_ui->truncateHistory(s.text);
+	_countdowns.reset();
+	g_system->displayMessageOnOSD(Common::U32String(message));
 }
 
 // The cartridge: the file detection named, or any .nes file in the game's
@@ -342,6 +380,7 @@ Common::Error NesVentureEngine::run() {
 			_nes->buttons = _keys | _ui->buttons();
 			_nes->runFrame();
 			_ui->update();
+			runCheats();
 		}
 		if (!_nes->audio.empty() && _audio->numQueuedStreams() < 8) {
 			const uint bytes = _nes->audio.size() * 2;

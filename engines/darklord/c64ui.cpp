@@ -82,7 +82,7 @@ const uint16 kFont = 0x5F92;
 
 C64UI::C64UI(Machine *machine) : _machine(machine), _w(0), _h(0), _portrait(false), _look(kLookC64), _layout(kLayoutC2),
 		_screen(nullptr), _pendingFrames(0), _scroll(0), _down(false), _button(false), _pressButton(-1), _pressTime(0), _holdFired(false), _tapFrames(0),
-		_scrolling(false), _scrollStart(0), _mapped(false), _loading(false), _lastSig(0), _drawn(false) {
+		_scrolling(false), _scrollStart(0), _mapped(false), _loading(false), _move(false), _lastSig(0), _drawn(false) {
 }
 
 C64UI::~C64UI() {
@@ -346,6 +346,16 @@ void C64UI::readText() {
 	_scroll = 0;
 }
 
+bool C64UI::textHas(const char *upper) const {
+	for (int i = MAX<int>(0, (int)_history.size() - 8); i < (int)_history.size(); i++) {
+		Common::String l = _history[i];
+		l.toUppercase();
+		if (l.contains(upper))
+			return true;
+	}
+	return false;
+}
+
 void C64UI::clearText() {
 	_history.clear();
 	_lastPage.clear();
@@ -357,9 +367,7 @@ void C64UI::frame(const byte *screen) {
 	_screen = screen;
 	if (_tapFrames > 0)
 		_tapFrames--;
-	if (_layout == kLayoutOriginal)
-		return;
-	readText();
+	readText(); // (in Original too: the cheats watch it)
 }
 
 // Touch
@@ -427,6 +435,7 @@ C64UI::Action C64UI::press(Common::Point p) {
 	Common::Point c;
 	if (mapPoint(p, c)) {
 		_mapped = true;
+		_move = true;
 		_target = c;
 		_button = true;
 		_tapFrames = 4;

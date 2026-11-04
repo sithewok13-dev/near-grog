@@ -21,6 +21,7 @@
 
 #include "common/config-manager.h"
 #include "engines/neargrog.h"
+#include "engines/neargrog_cheats.h"
 #include "common/hash-str.h"
 #include "common/system.h"
 #include "graphics/font.h"
@@ -74,7 +75,7 @@ bool isBlank(byte t) { return t == 0x7E || t == 0x7F || t == 0xDE || t == 0xDF; 
 
 NesUI::NesUI(Nes *nes, GameId game) : _nes(nes), _game(game), _map(&kMaps[game]), _w(0), _h(0), _portrait(false),
 		_look(kLookNes), _textMode(false), _haveSnapshot(false), _textFg(0x0F), _textBg(0x30), _haveTextColours(false), _verbPaper(0x30), _commandFrames(0),
-		_scroll(0), _pad(0), _continueFrames(0), _pressButton(-1), _pressTime(0), _holdFired(false), _lastSignature(0), _drawn(false), _fullMode(false), _padHeld(0), _padTouch(-1), _padLast(0), _padLinger(0), _padShown(false), _fullStartTime(0), _fullTouching(false), _fullConsumed(false), _tapWait(0), _tapSig(0), _tapPending(false), _tapTime(0), _smart(0), _smartIdle(0), _flashVerb(-1), _flashUntil(0), _textDrag(false), _dragged(false), _dragScroll(0), _dropPage(false) {
+		_scroll(0), _pad(0), _continueFrames(0), _pressButton(-1), _pressTime(0), _holdFired(false), _lastSignature(0), _drawn(false), _fullMode(false), _padHeld(0), _padTouch(-1), _padLast(0), _padLinger(0), _padShown(false), _fullStartTime(0), _fullTouching(false), _fullConsumed(false), _tapWait(0), _tapSig(0), _tapPending(false), _tapTime(0), _smart(0), _smartIdle(0), _flashVerb(-1), _flashUntil(0), _textDrag(false), _dragged(false), _dragScroll(0), _dropPage(false), _move(false), _pageStill(0), _pageLen(0), _staleText(false), _staleSig(0) {
 	memset(_snapshot, 0, sizeof(_snapshot));
 	memset(_pal, 0, sizeof(_pal));
 	_goal.active = false;
@@ -332,6 +333,7 @@ void NesUI::update() {
 		_steps.clear();
 		_smart = 0;
 		steerTo(_tapPoint);
+		_move = true;
 	}
 	if (_smart == 1) {
 		// the reply to MOVE (read as it's written): a shut door says so
@@ -385,6 +387,18 @@ void NesUI::update() {
 				steerTo(st.target);
 				_goal.frames = -4;
 			}
+		}
+	}
+	if (_textMode && NearGrog::cheatOn("neargrog_cheat_text")) {
+		// Instant text: the page turned once it has been written
+		uint len = 0;
+		for (uint i = 0; i < _page.size(); i++)
+			len += _page[i].size();
+		_pageStill = len == _pageLen ? _pageStill + 1 : 0;
+		_pageLen = len;
+		if (_pageStill > 40 && !_continueFrames && (_nes->lineTable(200) & 1)) {
+			_pageStill = 0;
+			_continueFrames = 6;
 		}
 	}
 	if (_textMode) {
@@ -487,7 +501,22 @@ bool sameLine(const Common::Array<byte> &a, const Common::Array<byte> &b) {
 }
 } // End of anonymous namespace
 
+// The text window's letters, as one number (to tell when they change)
+uint32 NesUI::textSignature() const {
+	uint32 h = 2166136261u;
+	for (int r = 21; r <= 27; r += 2)
+		for (int c = 3; c <= 28; c++)
+			h = (h ^ _nes->ppuPeek(0x2400 + r * 32 + c)) * 16777619u;
+	return h;
+}
+
 void NesUI::readText() {
+	// After an undo the window still holds the text read before: not again
+	if (_staleText) {
+		if (textSignature() == _staleSig)
+			return;
+		_staleText = false;
+	}
 	Common::Array<Common::Array<byte> > rows;
 	for (int r = 21; r <= 27; r += 2) {
 		Common::Array<byte> row;
@@ -562,6 +591,30 @@ void NesUI::readText() {
 			_haveTextColours = true;
 		}
 	}
+}
+
+// For the cheats: any of these words written on either name table
+bool NesUI::screenHas(const char *const *phrases, int n) const {
+	for (int t = 0; t < 2; t++)
+		for (int r = 0; r < 30; r++) {
+			Common::Array<byte> row;
+			for (int c = 0; c < 32; c++)
+				row.push_back(_nes->ppuPeek(0x2000 + t * 0x400 + r * 32 + c));
+			const Common::String s = decode(row);
+			for (int i = 0; i < n; i++)
+				if (s.contains(phrases[i]))
+					return true;
+		}
+	return false;
+}
+
+void NesUI::truncateHistory(uint n) {
+	while (_history.size() > n)
+		_history.pop_back();
+	_page.clear();
+	_staleText = true;
+	_staleSig = textSignature();
+	_scroll = 0;
 }
 
 // The text read since the last command goes into the history
@@ -744,6 +797,7 @@ NesUI::Action NesUI::release(Common::Point p) {
 		const int mv = verbIndex("MOVE");
 		if (mv < 0) {
 			steerTo(at);
+			_move = true;
 			return kNone;
 		}
 		// Shadowgate, Deja Vu: a double tap goes there (MOVE; a shut door
@@ -753,6 +807,7 @@ NesUI::Action NesUI::release(Common::Point p) {
 			_tapPending = false;
 			_steps.clear();
 			_smart = 1;
+			_move = true;
 			_smartIdle = 0;
 			_smartTarget = at;
 			steerTo(itemPoint(_map->verbs[mv]));
@@ -782,8 +837,10 @@ NesUI::Action NesUI::release(Common::Point p) {
 			const int c = (p.x - in.left) * 2 / MAX<int>(1, in.width());
 			const int r = (p.y - in.top) * 4 / MAX<int>(1, in.height());
 			const int idx = c * 4 + r;
-			if (idx < kGoodsRows)
+			if (idx < kGoodsRows) {
 				steerTo(Common::Point(kGoodsMarkerCol * 8 + 4, rowY(5 + idx * 2) + 4));
+				_move = true;
+			}
 		}
 		return kNone;
 	}
@@ -797,6 +854,7 @@ NesUI::Action NesUI::release(Common::Point p) {
 			if (mv >= 0) {
 				steerTo(itemPoint(_map->verbs[mv]));
 				then(moveTarget(toNes(in, _map->moveBox, p)), Nes::kDown); // from MOVE into the map
+				_move = true;
 				_flashVerb = mv;
 				_flashUntil = g_system->getMillis() + 250;
 			} else {

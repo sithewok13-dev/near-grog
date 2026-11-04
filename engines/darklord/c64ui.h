@@ -62,6 +62,12 @@ public:
 	void frame(const byte *screen);
 	/** While the game starts (the crack's intro, the disk swap): a loading screen instead. */
 	void setLoading(bool loading) { _loading = loading; }
+	// For the cheats
+	bool takeMove() { bool m = _move; _move = false; return m; } ///< a touch on the game (a move may follow)
+	uint historySize() const { return _history.size(); }
+	void truncateHistory(uint n) { while (_history.size() > n) _history.pop_back(); _lastPage.clear(); _pending.clear(); }
+	bool textHas(const char *upper) const; ///< in the last lines read (capitals)
+	bool waitingToContinue() const { return continueShown(); }
 	/** Forgets the text read so far (the start-up's messages). */
 	void clearText();
 	/** Draws everything; false if nothing changed since last time. */
@@ -145,6 +151,7 @@ private:
 	void drawText();
 	void drawPieces();
 	bool _loading;
+	bool _move;
 	uint32 _lastSig;
 	bool _drawn;
 	uint32 signature() const;

@@ -25,6 +25,7 @@
 #include "audio/audiostream.h"
 #include "audio/mixer.h"
 #include "engines/engine.h"
+#include "engines/neargrog_cheats.h"
 #include "graphics/pixelformat.h"
 #include "nesventure/detection.h"
 
@@ -69,6 +70,12 @@ private:
 	void applyLayout();
 	void quickSave();
 	void quickLoad();
+	// The cheats
+	NearGrog::UndoStack _undo;
+	NearGrog::Countdowns _countdowns;
+	uint32 _cheatFrame = 0;
+	void runCheats();
+	void undoMove(const char *message);
 };
 
 } // End of namespace NesVenture

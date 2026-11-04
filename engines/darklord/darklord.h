@@ -30,6 +30,7 @@
 #include "darklord/apple2.h"
 #include "darklord/machine.h"
 #include "graphics/pixelformat.h"
+#include "engines/neargrog_cheats.h"
 
 namespace Audio {
 class QueuingAudioStream;
@@ -100,7 +101,13 @@ private:
 	class C64UI *_ui;          // its phone layouts
 	Graphics::PixelFormat _format;
 	byte _c64Screen[320 * 200];
-	int _menuClick;            // frames left of a click on the game's ?= menu
+	int _menuClick;            // frames left of a click by itself (at _autoPoint)
+	Common::Point _autoPoint;
+	int _continueWait;         // Instant text: frames the game has waited for a click
+	NearGrog::UndoStack _undo;
+	NearGrog::Countdowns _countdowns;
+	void runCheats();
+	void undoMove(const char *message);
 	void applyLayout();
 	void present();
 	void quickSave();
