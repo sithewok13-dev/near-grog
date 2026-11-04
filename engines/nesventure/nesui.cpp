@@ -1052,7 +1052,8 @@ void NesUI::drawHoldRing(const Common::Rect &r, int radius, float progress) {
 }
 
 void NesUI::drawButtons() {
-	static const char *const kLabels[3] = { "SAVE", "LOAD", "MENU" };
+	static const char *const kLabels[3] = { "SAVE", "LOAD", "MENU" }; // (the game's letters: capitals)
+	static const char *const kDarkLabels[3] = { "Save", "Load", "Menu" }; // (Dark: in the verbs' case)
 	const bool dark = _look == kLookDark;
 	const uint32 panel = dark ? rgb(40, 40, 48) : _pal[_textBg], ink = dark ? rgb(255, 255, 255) : _pal[_textFg];
 	for (int i = 0; i < 3; i++) {
@@ -1060,7 +1061,7 @@ void NesUI::drawButtons() {
 		roundRect(b, dark ? 24 : 6, panel, dark ? rgb(200, 200, 210) : ink);
 		if (dark) {
 			const Graphics::Font *f = font(16, true, false);
-			text(kLabels[i], b.left, b.top + (b.height() - (f ? f->getFontHeight() : 16)) / 2, b.width(), ink, f, true);
+			text(kDarkLabels[i], b.left, b.top + (b.height() - (f ? f->getFontHeight() : 16)) / 2, b.width(), ink, f, true);
 		} else {
 			const int sc = 3, w = 4 * 8 * sc;
 			nesText(kLabels[i], b.left + (b.width() - w) / 2, b.top + (b.height() - 8 * sc) / 2, sc, ink);
@@ -1306,12 +1307,12 @@ void NesUI::drawFull() {
 	const uint32 fill0 = rgb(40, 40, 48), edge0 = rgb(200, 200, 210);
 	roundRect(_fullMenu, 14, fill0, edge0);
 	const Graphics::Font *mf = font(16, true, false);
-	text("MENU", _fullMenu.left, _fullMenu.top + (_fullMenu.height() - (mf ? mf->getFontHeight() : 16)) / 2, _fullMenu.width(), rgb(255, 255, 255), mf, true);
+	text("Menu", _fullMenu.left, _fullMenu.top + (_fullMenu.height() - (mf ? mf->getFontHeight() : 16)) / 2, _fullMenu.width(), rgb(255, 255, 255), mf, true);
 	// BACK (the B button: out of the game's own menus) and the pad
 	roundRect(_fullBack, 14, fill0, edge0);
-	text("BACK", _fullBack.left, _fullBack.top + (_fullBack.height() - (mf ? mf->getFontHeight() : 16)) / 2, _fullBack.width(), rgb(255, 255, 255), mf, true);
+	text("Back", _fullBack.left, _fullBack.top + (_fullBack.height() - (mf ? mf->getFontHeight() : 16)) / 2, _fullBack.width(), rgb(255, 255, 255), mf, true);
 	roundRect(_fullPad, 14, _padShown ? rgb(60, 120, 200) : fill0, edge0);
-	text("PAD", _fullPad.left, _fullPad.top + (_fullPad.height() - (mf ? mf->getFontHeight() : 16)) / 2, _fullPad.width(), rgb(255, 255, 255), mf, true);
+	text("Pad", _fullPad.left, _fullPad.top + (_fullPad.height() - (mf ? mf->getFontHeight() : 16)) / 2, _fullPad.width(), rgb(255, 255, 255), mf, true);
 	if (!_padShown)
 		return;
 	static const char *const kLabels[8] = { "", "", "", "", "A", "B", "START", "SELECT" };

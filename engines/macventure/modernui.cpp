@@ -49,8 +49,9 @@ const struct {
 	{ "SELF", kNoCommand }, { "Go", kGo }, { "Operate", kOperate }
 };
 
-const char *const kButtonLabels[3] = { "SAVE", "LOAD", "MENU" };
-const char *const kTitleButtonLabels[3] = { "SAVE", "LOAD", "MENU" };
+// (in the verbs' case: "Examine", "Open" ...)
+const char *const kButtonLabels[3] = { "Save", "Load", "Menu" };
+const char *const kTitleButtonLabels[3] = { "Save", "Load", "Menu" };
 
 // A tap opens the save/load screen (or the game's menu); held this long, the
 // quick slot (or the Near-Grog tray), with a ring filling meanwhile

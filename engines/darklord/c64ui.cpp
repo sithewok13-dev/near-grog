@@ -641,7 +641,7 @@ void C64UI::drawHoldRing(const Common::Rect &r, int radius, float progress) {
 }
 
 void C64UI::drawButtons() {
-	static const char *const kLabels[3] = { "SAVE", "LOAD", "MENU" };
+	static const char *const kLabels[3] = { "Save", "Load", "Menu" }; // (Dark: in the verbs' case)
 	const bool dark = _look == kLookDark;
 	for (int i = 0; i < 3; i++) {
 		const Common::Rect &b = _buttons[i];
