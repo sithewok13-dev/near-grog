@@ -921,6 +921,12 @@ void ModernUI::updateMomentum() {
 
 void ModernUI::addText(const Common::String &text) {
 	Common::String t = text;
+	// The Windows release's text has non-breaking spaces here and there: the
+	// font draws them with no width and the lines can't break at them, so
+	// words ran together. Plain spaces.
+	for (uint i = 0; i < t.size(); i++)
+		if ((byte)t[i] == 0xA0 || (byte)t[i] == 0xCA || t[i] == '\t')
+			t.setChar(' ', i);
 	while (!t.empty() && t.lastChar() == '\n')
 		t.deleteLastChar();
 	// One paragraph a line of the game's text
@@ -1524,9 +1530,8 @@ void ModernUI::drawShelf() {
 			slot.obj = items[k];
 			slot.rect = cell;
 			_slots.push_back(slot);
-		} else {
-			_out.frameRect(cell, sep);
 		}
+		// (no empty boxes: the game's inventory has no slots)
 	}
 
 	_out.vLine(_shelfExits.left - 8, _shelfExits.top + 4, _shelfExits.bottom - 4, sep);
@@ -1538,35 +1543,45 @@ void ModernUI::drawExits(const Common::Rect &area) {
 	const bool dark = _look == kLookDark;
 	const uint32 lc = dark ? rgb(230, 230, 235) : rgb(0, 0, 0);
 	text("Exits", area.left, area.top + 4, area.width(), lc, font(15, true));
-	// The exits window's buttons, where they are on it
+	// The exits as a compass: each in its own cell of a 3 x 3 grid (by
+	// where it is on the game's exits map), so none can cover another
 	Common::Rect src = _gui->_exitsWindow->getInnerDimensions();
 	const int sw = MAX<int>(1, src.width()), shh = MAX<int>(1, src.height());
-	const int aw = area.width() - 48, ah = MIN(area.height() - 26 - 30, 90);
-	const int k = MIN(aw * 1000 / sw, ah * 1000 / shh);
-	const int ox = area.left + 20 + (aw - sw * k / 1000) / 2, oy = area.top + 26 + 15 + (ah - shh * k / 1000) / 2;
+	const int gw = MIN((area.width() - 12) / 3, 46), gh = MIN((area.height() - 30) / 3, 32);
+	const int gx = area.left + (area.width() - 3 * gw) / 2, gy = area.top + 26 + (area.height() - 26 - 3 * gh) / 2;
+	bool used[9] = {};
 	_exitRects.clear();
 	for (uint i = 0; i < _gui->_exitsData->size(); i++) {
 		const ControlData &d = (*_gui->_exitsData)[i].getData();
 		const Common::Rect &er = d.bounds;
 		const int ex = (er.left + er.right) / 2, ey = (er.top + er.bottom) / 2;
-		const int cx = ox + ex * k / 1000, cy = oy + ey * k / 1000;
-		Common::Rect b(cx - 20, cy - 13, cx + 20, cy + 13);
+		// A compass letter from where it is on the map
+		Common::String lab;
+		int col = 1, row = 1;
+		const int dx = ex - sw / 2, dy = ey - shh / 2;
+		const int adx = ABS(dx), ady = ABS(dy);
+		if (MAX(adx * 10 / sw, ady * 10 / shh) >= 1) {
+			if (ady * 2 >= adx) {
+				lab += dy < 0 ? "N" : "S";
+				row = dy < 0 ? 0 : 2;
+			}
+			if (adx * 2 >= ady) {
+				lab += dx < 0 ? "W" : "E";
+				col = dx < 0 ? 0 : 2;
+			}
+		}
+		if (lab.empty())
+			lab = "*";
+		int cell = row * 3 + col;
+		for (int t = 0; t < 9 && used[cell]; t++)
+			cell = (cell + 1) % 9; // (two the same way: the next free cell)
+		used[cell] = true;
+		const int x = gx + (cell % 3) * gw, y = gy + (cell / 3) * gh;
+		Common::Rect b(x + 2, y + 2, x + gw - 2, y + gh - 2);
 		Slot slot;
 		slot.obj = (ObjID)d.refcon;
 		slot.rect = b;
 		_exitRects.push_back(slot);
-		// A compass letter from where it is on the map
-		Common::String lab;
-		const int dx = ex - sw / 2, dy = ey - shh / 2;
-		const int adx = ABS(dx), ady = ABS(dy);
-		if (MAX(adx * 10 / sw, ady * 10 / shh) >= 1) {
-			if (ady * 2 >= adx)
-				lab += dy < 0 ? "N" : "S";
-			if (adx * 2 >= ady)
-				lab += dx < 0 ? "W" : "E";
-		}
-		if (lab.empty())
-			lab = "*";
 		if (dark)
 			roundRect(b, 8, rgb(kPanel[0], kPanel[1], kPanel[2]), rgb(200, 200, 210), 2);
 		else
