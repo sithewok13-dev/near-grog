@@ -20,6 +20,7 @@
  */
 
 #include "common/config-manager.h"
+#include "engines/neargrog.h"
 #include "common/system.h"
 #include "graphics/fontman.h"
 #include "graphics/fonts/ttf.h"
@@ -183,29 +184,31 @@ void C64UI::layout() {
 		region(_exitBox, kExits);
 	};
 
+	// The whole screen is ours (the backend is asked not to keep the safe
+	// area): only what matters is kept clear - in portrait the Dynamic
+	// Island at the top and the home bar at the bottom, in landscape the
+	// island's side (either side, the phone can turn both ways) and the
+	// home bar
 	if (_portrait) {
-		const int L = 24, R = _w - 24;
-		int y = 60;
+		const int L = 8, R = _w - 8, T = NearGrog::kPortraitTop, B = _h - NearGrog::kHomeBar;
 		const int bw = (R - L - 16) / 3;
 		for (int i = 0; i < 3; i++)
-			_buttons[i] = Common::Rect(L + i * (bw + 8), y, L + i * (bw + 8) + bw, y + 54);
-		y += 66;
+			_buttons[i] = Common::Rect(L + i * (bw + 8), T, L + i * (bw + 8) + bw, T + 54);
+		int y = T + 62;
 		if (_layout == kLayoutOriginal) {
-			_whole = fit(Common::Rect(L, y, R, _h - 40), Common::Rect(kW, kH));
+			_whole = fit(Common::Rect(L, y, R, B), Common::Rect(kW, kH));
 			region(_whole, Common::Rect(kW, kH));
 			return;
 		}
 		picture(Common::Rect(L, y, R, y + (R - L) * 128 / 192));
-		y = _picBox.bottom + 10;
-		_textBox = Common::Rect(L, y, R, y + 380);
-		y = _textBox.bottom + 10;
-		placeVerbs(Common::Rect(L, y, R, y + 3 * 72));
-		y = _verbBox.bottom + 10;
-		shelf(Common::Rect(L, y, R, _h - 40));
+		const int shelfH = 210, verbH = 3 * 68;
+		shelf(Common::Rect(L, B - shelfH, R, B));
+		placeVerbs(Common::Rect(L, B - shelfH - 8 - verbH, R, B - shelfH - 8));
+		_textBox = Common::Rect(L, _picBox.bottom + 8, R, _verbBox.top - 8);
 		return;
 	}
 
-	const int L = 54, R = _w - 54, T = 18, B = _h - 18;
+	const int L = NearGrog::kLandscapeSide, R = _w - NearGrog::kLandscapeSide, T = 10, B = _h - 16;
 	if (_layout == kLayoutOriginal) {
 		// The game's own screen, our three buttons beside it
 		_whole = fit(Common::Rect(L, T, R - 200, B), Common::Rect(kW, kH), false);
@@ -219,19 +222,21 @@ void C64UI::layout() {
 	if (_layout == kLayoutC2) {
 		// C2: the picture top left, inventory and exits under it; buttons,
 		// verbs and text on the right
-		picture(Common::Rect(L, T, L + 576, T + 384));
+		const int shelfH = 180;
+		const int ph = B - T - shelfH - 8;
+		picture(Common::Rect(L, T, L + ph * 192 / 128, T + ph));
 		shelf(Common::Rect(L, _picBox.bottom + 8, _picBox.right, B));
-		rx = _picBox.right + 20;
+		rx = _picBox.right + 16;
 		const int bw = (R - rx - 16) / 3;
 		for (int i = 0; i < 3; i++)
 			_buttons[i] = Common::Rect(rx + i * (bw + 8), T, rx + i * (bw + 8) + bw, T + 56);
-		placeVerbs(Common::Rect(rx, T + 66, R, T + 66 + 3 * 64));
+		placeVerbs(Common::Rect(rx, T + 64, R, T + 64 + 3 * 64));
 		_textBox = Common::Rect(rx, _verbBox.bottom + 8, R, B);
 		return;
 	}
 	// E1 / E2: the picture full height on the left, everything else beside it
-	picture(Common::Rect(L, T, L + 700, B));
-	rx = _picBox.right + 18;
+	picture(Common::Rect(L, T, L + (B - T) * 192 / 128, B));
+	rx = _picBox.right + 16;
 	const int bw = (R - rx - 16) / 3;
 	for (int i = 0; i < 3; i++)
 		_buttons[i] = Common::Rect(rx + i * (bw + 8), T, rx + i * (bw + 8) + bw, T + 52);
@@ -369,6 +374,21 @@ bool C64UI::mapPoint(Common::Point p, Common::Point &c64) const {
 		return true;
 	}
 	return false;
+}
+
+// Where on the phone a C64 screen pixel is drawn (for tests)
+Common::Point C64UI::toScreen(Common::Point c64) const {
+	for (uint i = 0; i < _regions.size(); i++) {
+		const Region &r = _regions[i];
+		if (!r.src.contains(c64))
+			continue;
+		return Common::Point(r.box.left + (c64.x - r.src.left) * r.box.width() / r.src.width() + r.box.width() / r.src.width() / 2,
+			r.box.top + (c64.y - r.src.top) * r.box.height() / r.src.height() + r.box.height() / r.src.height() / 2);
+	}
+	for (uint i = 0; i < _cells.size(); i++)
+		if (verbPoint(_cells[i].verb) == c64)
+			return Common::Point((_cells[i].box.left + _cells[i].box.right) / 2, (_cells[i].box.top + _cells[i].box.bottom) / 2);
+	return Common::Point(-1, -1);
 }
 
 C64UI::Action C64UI::press(Common::Point p) {
@@ -668,28 +688,32 @@ void C64UI::drawVerbs() {
 		for (int k = 0; k < len; k++)
 			glyph(v.name[k], x + k * 8 * sc, y, sc, ink);
 	}
-	if (continueShown()) {
-		// The game waits for a click: say so over the verbs
-		if (dark) {
-			Common::Rect b(_verbBox.left, _verbBox.top + _verbBox.height() / 3, _verbBox.right, _verbBox.top + _verbBox.height() * 2 / 3);
-			roundRect(b, 20, rgb(60, 120, 200), rgb(200, 200, 210));
-			const Graphics::Font *f = font(22, true, false);
-			text("Tap to continue", b.left, b.top + (b.height() - (f ? f->getFontHeight() : 16)) / 2, b.width(), rgb(255, 255, 255), f, true);
-		} else {
-			const Common::Rect to = fit(_verbBox, kContinueBar);
-			_out.fillRect(Common::Rect(_verbBox.left, to.top - 6, _verbBox.right, to.bottom + 6), _pal[0]);
-			blit(kContinueBar, to);
-		}
-	}
+
 }
 
 void C64UI::drawText() {
 	const bool dark = _look == kLookDark;
-	const Common::Rect &b = _textBox;
+	Common::Rect b = _textBox;
 	if (dark)
 		roundRect(b, 14, rgb(30, 28, 24), rgb(110, 100, 80));
 	else
 		_out.fillRect(b, _pal[kBlue]);
+	if (continueShown()) {
+		// The game waits for a click: said at the foot of the text, where
+		// the reading stops (a tap anywhere continues)
+		if (dark) {
+			const Common::Rect bar(b.left + 10, b.bottom - 56, b.right - 10, b.bottom - 10);
+			roundRect(bar, 23, rgb(60, 120, 200), rgb(200, 200, 210));
+			const Graphics::Font *f = font(20, true, false);
+			text("Tap to continue", bar.left, bar.top + (bar.height() - (f ? f->getFontHeight() : 16)) / 2, bar.width(), rgb(255, 255, 255), f, true);
+			b.bottom = bar.top - 4;
+		} else {
+			const Common::Rect to = fit(Common::Rect(b.left + 6, b.bottom - 50, b.right - 6, b.bottom - 6), kContinueBar);
+			_out.fillRect(Common::Rect(b.left, to.top - 6, b.right, b.bottom), _pal[0]);
+			blit(kContinueBar, to);
+			b.bottom = to.top - 8;
+		}
+	}
 	// The paragraphs read so far, flowed to the width
 	Common::Array<Common::String> paras;
 	Common::String cur;

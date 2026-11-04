@@ -32,6 +32,7 @@
 #include "common/debug.h"
 #include "common/error.h"
 #include "common/config-manager.h"
+#include "engines/neargrog.h"
 #include "common/str-enc.h"
 #include "engines/util.h"
 #include "engines/advancedDetector.h"
@@ -88,6 +89,7 @@ MacVentureEngine::MacVentureEngine(OSystem *syst, const ADGameDescription *gameD
 MacVentureEngine::~MacVentureEngine() {
 	// Near-Grog: touches as they are no more once it has gone
 	ConfMan.setBool("neargrog_raw_touch", false, Common::ConfigManager::kTransientDomain);
+	NearGrog::wholeScreen(false);
 	debug("MacVenture::~MacVentureEngine()");
 
 	if (_rnd)
@@ -327,6 +329,7 @@ void MacVentureEngine::applyLayout() {
 		layout = kLayoutOriginal;
 
 	if (layout == kLayoutOriginal) {
+		NearGrog::wholeScreen(false); // the original screen keeps to the safe area
 		if (g_system->getWidth() != kScreenWidth || g_system->getHeight() != kScreenHeight || !g_system->getScreenFormat().isCLUT8())
 			initGraphics(kScreenWidth, kScreenHeight);
 		_gui->setModern(false);
@@ -334,6 +337,7 @@ void MacVentureEngine::applyLayout() {
 		const bool portrait = ModernUI::portraitScreen();
 		int w, h;
 		ModernUI::screenSize(portrait, w, h);
+		NearGrog::wholeScreen(true);
 		if (g_system->getWidth() != w || g_system->getHeight() != h || g_system->getScreenFormat() != format)
 			initGraphics(w, h, &format);
 		_gui->setModern(true, w, h, portrait, layout, ModernUI::configLook(), ModernUI::configOpacity(), &format);

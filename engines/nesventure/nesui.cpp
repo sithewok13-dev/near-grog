@@ -20,6 +20,7 @@
  */
 
 #include "common/config-manager.h"
+#include "engines/neargrog.h"
 #include "common/hash-str.h"
 #include "common/system.h"
 #include "graphics/font.h"
@@ -121,7 +122,7 @@ int NesUI::rowY(int r) const {
 void NesUI::layout() {
 	const int rows = 3 + (_map->verbCount > 9 ? 1 : 0);
 	if (!_portrait) {
-		const int L = 54, R = _w - 54, T = 14, B = _h - 14;
+		const int L = NearGrog::kLandscapeSide, R = _w - NearGrog::kLandscapeSide, T = 14, B = _h - 14;
 		const int side = B - T;
 		_picBox = Common::Rect(L, T, L + side, B);
 		const int x0 = L + side + 16;
@@ -133,14 +134,14 @@ void NesUI::layout() {
 		_moveBox = Common::Rect(R - 150, B - 150, R, B);
 		_textBox = Common::Rect(x0, _verbBox.bottom + 10, R, _goodsBox.top - 10);
 	} else {
-		const int L = 24, R = _w - 24;
-		int y = 60;
+		const int L = 8, R = _w - 8;
+		int y = NearGrog::kPortraitTop;
 		const int bw = (R - L - 16) / 3;
 		for (int i = 0; i < 3; i++)
 			_buttons[i] = Common::Rect(L + i * (bw + 8), y, L + i * (bw + 8) + bw, y + 50);
 		y += 60;
 		_picBox = Common::Rect(L, y, R, y + (R - L));
-		const int B = _h - 40;
+		const int B = _h - NearGrog::kHomeBar;
 		_goodsBox = Common::Rect(L, B - 170, R - 170, B);
 		_moveBox = Common::Rect(R - 160, B - 170, R, B);
 		_verbBox = Common::Rect(L, _goodsBox.top - 10 - rows * 56, R, _goodsBox.top - 10);
@@ -151,17 +152,17 @@ void NesUI::layout() {
 	if (!_portrait) {
 		const int h = _h - 28, w = h * 256 / 240;
 		_fullBox = Common::Rect((_w - w) / 2, 14, (_w - w) / 2 + w, 14 + h);
-		const int cx = (54 + _fullBox.left) / 2, cy = _h / 2 + 40, b = 64;
+		const int cx = (NearGrog::kLandscapeSide + _fullBox.left) / 2, cy = _h / 2 + 40, b = 64;
 		_padRects[0] = Common::Rect(cx - b / 2, cy - b * 3 / 2, cx + b / 2, cy - b / 2);       // up
 		_padRects[1] = Common::Rect(cx - b / 2, cy + b / 2, cx + b / 2, cy + b * 3 / 2);       // down
 		_padRects[2] = Common::Rect(cx - b * 3 / 2, cy - b / 2, cx - b / 2, cy + b / 2);       // left
 		_padRects[3] = Common::Rect(cx + b / 2, cy - b / 2, cx + b * 3 / 2, cy + b / 2);       // right
-		const int rx = (_fullBox.right + _w - 54) / 2;
+		const int rx = (_fullBox.right + _w - NearGrog::kLandscapeSide) / 2;
 		_padRects[4] = Common::Rect(rx + 10, cy - 90, rx + 100, cy);                          // A
 		_padRects[5] = Common::Rect(rx - 100, cy - 30, rx - 10, cy + 60);                     // B
 		_padRects[6] = Common::Rect(rx - 90, cy + 110, rx + 90, cy + 160);                    // START
 		_padRects[7] = Common::Rect(rx - 90, cy + 170, rx + 90, cy + 220);                    // SELECT
-		_fullMenu = Common::Rect(_w - 54 - 140, 14, _w - 54, 64);
+		_fullMenu = Common::Rect(_w - NearGrog::kLandscapeSide - 140, 14, _w - NearGrog::kLandscapeSide, 64);
 		_fullBack = Common::Rect(_fullMenu.left, _h - 64, _fullMenu.right, _h - 14);
 		_fullPad = Common::Rect(_fullMenu.left, _fullBack.top - 60, _fullMenu.right, _fullBack.top - 10);
 	} else {
@@ -176,9 +177,9 @@ void NesUI::layout() {
 		_padRects[5] = Common::Rect(_w - 280, cy - 40, _w - 170, cy + 70);
 		_padRects[6] = Common::Rect(_w / 2 - 210, cy + 200, _w / 2 - 10, cy + 260);
 		_padRects[7] = Common::Rect(_w / 2 + 10, cy + 200, _w / 2 + 210, cy + 260);
-		_fullMenu = Common::Rect(_w - 24 - 140, 20, _w - 24, 70);
-		_fullPad = Common::Rect(_fullMenu.left - 150, 20, _fullMenu.left - 10, 70);
-		_fullBack = Common::Rect(_fullPad.left - 150, 20, _fullPad.left - 10, 70);
+		_fullMenu = Common::Rect(_w - 8 - 140, NearGrog::kPortraitTop, _w - 8, NearGrog::kPortraitTop + 50);
+		_fullPad = Common::Rect(_fullMenu.left - 150, _fullMenu.top, _fullMenu.left - 10, _fullMenu.bottom);
+		_fullBack = Common::Rect(_fullPad.left - 150, _fullMenu.top, _fullPad.left - 10, _fullMenu.bottom);
 	}
 	_fullBig = _fullBox;
 	if (_portrait)

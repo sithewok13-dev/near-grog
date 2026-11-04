@@ -22,6 +22,7 @@
 // Near-Grog: phone-friendly layouts, see modernui.h
 
 #include "common/config-manager.h"
+#include "engines/neargrog.h"
 #include "common/system.h"
 #include "common/translation.h"
 #include "graphics/font.h"
@@ -144,9 +145,8 @@ bool ModernUI::portraitScreen() {
 }
 
 void ModernUI::screenSize(bool portrait, int &w, int &h) {
-	// An iPhone's shape (about 2.17:1); other screens get borders
-	w = portrait ? 646 : 1400;
-	h = portrait ? 1400 : 646;
+	// The screen's own shape, the whole screen (see engines/neargrog.h)
+	NearGrog::canvasSize(portrait, w, h);
 }
 
 // Layout
@@ -172,11 +172,13 @@ void ModernUI::setup(int w, int h, bool portrait, ModernLayout layout, ModernLoo
 
 void ModernUI::doLayout() {
 	const bool dark = _look == kLookDark;
+	// (clear of the Dynamic Island: its side in landscape, the top in portrait)
+	const int kM = NearGrog::kLandscapeSide;
 	if (_portrait) {
 		// Top to bottom: the picture (SAVE / LOAD / MENU on its title bar), the
 		// text, the verbs, the inventory with the exits
-		const int L = 24, R = _w - 24;
-		int y = 70;
+		const int L = 8, R = _w - 8;
+		int y = NearGrog::kPortraitTop;
 		const int rw = R - L;
 		const int rh = (rw - 10) * 10 / 16;
 		_roomBox = Common::Rect(L, y, R, y + rh + 42);
@@ -201,20 +203,20 @@ void ModernUI::doLayout() {
 		_verbFont = 21;
 		_verbArea = Common::Rect(L, y, R, y + 3 * _verbH + 2 * _verbGap);
 		y = _verbArea.bottom + 12;
-		_shelfBox = Common::Rect(L, y, R, _h - 40);
-		_textMax = Common::Rect(L, _textNormal.top, R, _h - 40);
+		_shelfBox = Common::Rect(L, y, R, _h - NearGrog::kHomeBar);
+		_textMax = Common::Rect(L, _textNormal.top, R, _h - NearGrog::kHomeBar);
 		_itemSize = Common::Point(34, 60);
 	} else if (_layout == kLayoutE2) {
 		// E2: E with the picture a sixth smaller, so the column beside it
 		// gets full-size buttons, verbs and text
-		const int right = _w - 40;
+		const int right = _w - kM;
 		const int rh = (_h - 14 - 12 - 42) * 5 / 6;
 		const int rw = rh * 16 / 10;
 		const int top = (_h - rh - 42) / 2;
-		_roomBox = Common::Rect(40, top, 40 + rw + 10, top + rh + 42);
+		_roomBox = Common::Rect(kM, top, kM + rw + 10, top + rh + 42);
 		_roomPic = dark ? _roomBox : Common::Rect(_roomBox.left + 5, _roomBox.top + 37, _roomBox.right - 5, _roomBox.bottom - 5);
 		_roomTitleFont = dark ? 26 : 22;
-		const int vx = 40 + rw + 30;
+		const int vx = kM + rw + 30;
 		_roundButtons = true;
 		for (int i = 0; i < 3; i++) {
 			int cx = right - 34 - (2 - i) * 92;
@@ -234,13 +236,13 @@ void ModernUI::doLayout() {
 	} else if (_layout == kLayoutE) {
 		// E1: the picture full height on the left; buttons, verbs, text and
 		// inventory in a column on the right
-		const int right = _w - 40;
+		const int right = _w - kM;
 		const int rh = _h - 14 - 12 - 42;
 		const int rw = rh * 16 / 10;
-		_roomBox = Common::Rect(40, 14, 40 + rw + 10, 14 + rh + 42);
+		_roomBox = Common::Rect(kM, 14, kM + rw + 10, 14 + rh + 42);
 		_roomPic = dark ? _roomBox : Common::Rect(_roomBox.left + 5, _roomBox.top + 37, _roomBox.right - 5, _roomBox.bottom - 5);
 		_roomTitleFont = dark ? 26 : 22;
-		const int vx = 40 + rw + 30;
+		const int vx = kM + rw + 30;
 		_roundButtons = true;
 		for (int i = 0; i < 3; i++) {
 			int cx = right - 34 - (2 - i) * 92;
@@ -260,19 +262,19 @@ void ModernUI::doLayout() {
 	} else {
 		// C2: the picture with the inventory shelf under it on the left;
 		// buttons, verbs and the text on the right
-		const int right = _w - 40;
+		const int right = _w - kM;
 		const int rh = 400;
 		const int rw = rh * 16 / 10;
-		_roomBox = Common::Rect(40, 14, 40 + rw + 10, 14 + rh + 42);
+		_roomBox = Common::Rect(kM, 14, kM + rw + 10, 14 + rh + 42);
 		_roomPic = dark ? _roomBox : Common::Rect(_roomBox.left + 5, _roomBox.top + 37, _roomBox.right - 5, _roomBox.bottom - 5);
 		_roomTitleFont = dark ? 26 : 22;
-		_shelfBox = Common::Rect(40, 14 + rh + 50, 40 + rw + 10, _h - 12);
+		_shelfBox = Common::Rect(kM, 14 + rh + 50, kM + rw + 10, _h - 12);
 		_roundButtons = true;
 		for (int i = 0; i < 3; i++) {
 			int cx = right - 34 - (2 - i) * 100;
 			_buttons[i] = Common::Rect(cx - 34, 50 - 34, cx + 34, 50 + 34);
 		}
-		const int vx = 40 + rw + 40;
+		const int vx = kM + rw + 40;
 		_verbH = 60;
 		_verbGap = 10;
 		_verbFont = 18;
@@ -1337,10 +1339,13 @@ void ModernUI::drawButtons() {
 						const float a = CLIP((rad - 4) - d + 0.5f, 0.0f, 1.0f) * CLIP(d - (rad - 7) + 0.5f, 0.0f, 1.0f);
 						if (a <= 0)
 							continue;
-						bool topLeft = (x + y) < 0;
+						// light at the top left fading to dark at the bottom
+						// right (no hard edge between them)
+						float t = ((x + 0.5f) + (y + 0.5f)) / (1.4142f * d) * 0.5f + 0.5f;
 						if (held)
-							topLeft = !topLeft;
-						blendPixel(cx + x, cy + y, topLeft ? rgb(255, 255, 255) : rgb(kDarkGray[0], kDarkGray[1], kDarkGray[2]), a);
+							t = 1 - t;
+						t = CLIP((t - 0.3f) / 0.4f, 0.0f, 1.0f);
+						blendPixel(cx + x, cy + y, rgb((byte)(255 + (kDarkGray[0] - 255) * t), (byte)(255 + (kDarkGray[1] - 255) * t), (byte)(255 + (kDarkGray[2] - 255) * t)), a);
 					}
 				}
 			}

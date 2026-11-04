@@ -81,6 +81,9 @@ bool iOSGraphicsManager::loadVideoMode(uint requestedWidth, uint requestedHeight
 	// when the same game just changes its size (turning the phone), which
 	// would undo the touch mode the player picked
 	const Common::String domain = ConfMan.getActiveDomainName();
+	// Near-Grog: its layouts draw on the whole screen (they keep clear of
+	// the island and the home bar themselves)
+	setIgnoreGameSafeArea(!domain.empty() && ConfMan.hasKey("neargrog_full_screen") && ConfMan.getBool("neargrog_full_screen"));
 	if (domain.empty())
 		_touchDomain.clear(); // the launcher: the next game starts afresh
 	if ((_overlayVisible && _overlayInGUI) || domain.empty() || domain != _touchDomain || render3d != _touch3d) {

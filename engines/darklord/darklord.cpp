@@ -24,6 +24,7 @@
 #include "audio/mixer.h"
 #include "audio/sid.h"
 #include "common/config-manager.h"
+#include "engines/neargrog.h"
 #include "common/events.h"
 #include "common/file.h"
 #include "common/fs.h"
@@ -63,6 +64,7 @@ DarkLordEngine::DarkLordEngine(OSystem *syst, const ADGameDescription *desc) :
 DarkLordEngine::~DarkLordEngine() {
 	// Near-Grog: touches as they are no more once it has gone
 	ConfMan.setBool("neargrog_raw_touch", false, Common::ConfigManager::kTransientDomain);
+	NearGrog::wholeScreen(false);
 	if (_sid) {
 		_sid->stop();
 		delete _sid;
@@ -424,7 +426,9 @@ void DarkLordEngine::applyLayout() {
 	if (!found)
 		_format = Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0);
 	const bool portrait = C64UI::portraitScreen();
-	const int w = portrait ? 646 : 1400, h = portrait ? 1400 : 646;
+	int w, h;
+	NearGrog::canvasSize(portrait, w, h);
+	NearGrog::wholeScreen(true);
 	if (g_system->getWidth() != w || g_system->getHeight() != h || g_system->getScreenFormat() != _format)
 		initGraphics(w, h, &_format);
 	_ui->setup(w, h, portrait, C64UI::configLook(), C64UI::configLayout(), _format);

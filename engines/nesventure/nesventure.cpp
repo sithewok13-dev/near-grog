@@ -20,6 +20,7 @@
  */
 
 #include "common/config-manager.h"
+#include "engines/neargrog.h"
 #include "common/events.h"
 #include "common/fs.h"
 #include "common/md5.h"
@@ -46,6 +47,7 @@ NesVentureEngine::NesVentureEngine(OSystem *syst, const NesGameDescription *desc
 NesVentureEngine::~NesVentureEngine() {
 	// Near-Grog: touches as they are no more once it has gone
 	ConfMan.setBool("neargrog_raw_touch", false, Common::ConfigManager::kTransientDomain);
+	NearGrog::wholeScreen(false);
 	delete _ui;
 	delete _nes;
 }
@@ -91,7 +93,9 @@ void NesVentureEngine::applyLayout() {
 	if (!found)
 		_format = Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0);
 	const bool portrait = NesUI::portraitScreen();
-	const int w = portrait ? 646 : 1400, h = portrait ? 1400 : 646;
+	int w, h;
+	NearGrog::canvasSize(portrait, w, h);
+	NearGrog::wholeScreen(true);
 	if (g_system->getWidth() != w || g_system->getHeight() != h || g_system->getScreenFormat() != _format)
 		initGraphics(w, h, &_format);
 	_ui->setup(w, h, portrait, NesUI::configLook(), _format);
