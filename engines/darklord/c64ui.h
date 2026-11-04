@@ -71,6 +71,7 @@ public:
 	Action release(Common::Point p);
 	Action tick();
 	void wheel(int lines);
+	Common::Point toScreen(Common::Point c64) const;
 
 	/** Where the game's pointer should be (C64 screen pixels) and whether its button is down. */
 	bool pointer(Common::Point &c64, bool &button) const;
