@@ -172,6 +172,10 @@ static void openCheats(MacVentureEngine *vm) {
 			return;
 		}
 		ConfMan.flushToDisk();
+		// Shown at once (the hotspots come and go with the switch)
+		vm->getGui()->markRedraw();
+		vm->getGui()->draw();
+		g_system->updateScreen();
 	}
 }
 
