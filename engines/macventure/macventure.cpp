@@ -315,6 +315,13 @@ void MacVentureEngine::resetGui() {
 // a wide (or, held upright, a tall) true-colour screen of their own.
 void MacVentureEngine::applyLayout() {
 	ModernLayout layout = ModernUI::configLayout();
+	// The Windows release has no Original layout (the engine's own screen
+	// is the Mac version's); one saved before goes back to C2
+	if (layout == kLayoutOriginal && isWindowsVersion()) {
+		ConfMan.set("neargrog_layout", "c2");
+		ConfMan.flushToDisk();
+		layout = kLayoutC2;
+	}
 	Graphics::PixelFormat format;
 	bool found = false;
 	Common::List<Graphics::PixelFormat> formats = g_system->getSupportedFormats();

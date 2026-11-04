@@ -223,6 +223,10 @@ void NearGrogTray::open(MacVentureEngine *vm) {
 				while (k < 4 && kOrder[k] != layout)
 					k++;
 				layout = kOrder[(k + 1) % 4];
+				// (the Windows release has no Original: the engine's own
+				// screen is the Mac one; its Windows 3.1 look is ours)
+				if (layout == kLayoutOriginal && vm->isWindowsVersion())
+					layout = kOrder[0];
 			}
 			break;
 		case kCmdLook:
