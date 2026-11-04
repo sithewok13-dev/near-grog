@@ -216,19 +216,22 @@ void ModernUI::doLayout() {
 		_roomBox = Common::Rect(kM, top, kM + rw + 10, top + rh + 42);
 		_roomPic = dark ? _roomBox : Common::Rect(_roomBox.left + 5, _roomBox.top + 37, _roomBox.right - 5, _roomBox.bottom - 5);
 		_roomTitleFont = dark ? 26 : 22;
-		const int vx = kM + rw + 30;
-		_roundButtons = true;
-		for (int i = 0; i < 3; i++) {
-			int cx = right - 34 - (2 - i) * 92;
-			_buttons[i] = Common::Rect(cx - 34, 48 - 34, cx + 34, 48 + 34);
-		}
 		_verbH = 60;
 		_verbGap = 9;
 		_verbFont = 18;
-		_verbArea = Common::Rect(vx, 96, right, 96 + 3 * _verbH + 2 * _verbGap);
+		const int vx = _roomBox.right + _verbGap; // (the gap as the others)
+		// SAVE / LOAD / MENU: a row of square buttons over the verbs, in
+		// their columns
+		_roundButtons = false;
+		{
+			const int vw = (right - vx - 2 * _verbGap) / 3;
+			for (int i = 0; i < 3; i++)
+				_buttons[i] = Common::Rect(vx + i * (vw + _verbGap), 14, vx + i * (vw + _verbGap) + vw, 14 + _verbH);
+		}
+		_verbArea = Common::Rect(vx, 14 + _verbH + _verbGap, right, 14 + _verbH + _verbGap + 3 * _verbH + 2 * _verbGap);
 		const int shelfTop = _h - 12 - 140;
 		_textNormal = Common::Rect(vx, _verbArea.bottom + 10, right, shelfTop - 8);
-		_textMax = Common::Rect(vx, 92, right, shelfTop - 8);
+		_textMax = Common::Rect(vx, _verbArea.top, right, shelfTop - 8);
 		_textFont = 17;
 		_titleFont = 15;
 		_shelfBox = Common::Rect(vx, shelfTop, right, _h - 12);
@@ -242,19 +245,22 @@ void ModernUI::doLayout() {
 		_roomBox = Common::Rect(kM, 14, kM + rw + 10, 14 + rh + 42);
 		_roomPic = dark ? _roomBox : Common::Rect(_roomBox.left + 5, _roomBox.top + 37, _roomBox.right - 5, _roomBox.bottom - 5);
 		_roomTitleFont = dark ? 26 : 22;
-		const int vx = kM + rw + 30;
-		_roundButtons = true;
-		for (int i = 0; i < 3; i++) {
-			int cx = right - 34 - (2 - i) * 92;
-			_buttons[i] = Common::Rect(cx - 34, 44 - 34, cx + 34, 44 + 34);
-		}
 		_verbH = 46;
 		_verbGap = 7;
 		_verbFont = 15;
-		_verbArea = Common::Rect(vx, 88, right, 88 + 3 * _verbH + 2 * _verbGap);
+		const int vx = _roomBox.right + _verbGap; // (the gap as the others)
+		// SAVE / LOAD / MENU: a row of square buttons over the verbs, in
+		// their columns
+		_roundButtons = false;
+		{
+			const int vw = (right - vx - 2 * _verbGap) / 3;
+			for (int i = 0; i < 3; i++)
+				_buttons[i] = Common::Rect(vx + i * (vw + _verbGap), 14, vx + i * (vw + _verbGap) + vw, 14 + _verbH);
+		}
+		_verbArea = Common::Rect(vx, 14 + _verbH + _verbGap, right, 14 + _verbH + _verbGap + 3 * _verbH + 2 * _verbGap);
 		const int y = _verbArea.bottom;
 		_textNormal = Common::Rect(vx, y + 10, right, y + 10 + 220);
-		_textMax = Common::Rect(vx, 88, right, y + 10 + 220);
+		_textMax = Common::Rect(vx, _verbArea.top, right, y + 10 + 220);
 		_textFont = 15;
 		_titleFont = 13;
 		_shelfBox = Common::Rect(vx, y + 238, right, _h - 12);
@@ -269,18 +275,21 @@ void ModernUI::doLayout() {
 		_roomPic = dark ? _roomBox : Common::Rect(_roomBox.left + 5, _roomBox.top + 37, _roomBox.right - 5, _roomBox.bottom - 5);
 		_roomTitleFont = dark ? 26 : 22;
 		_shelfBox = Common::Rect(kM, 14 + rh + 50, kM + rw + 10, _h - 12);
-		_roundButtons = true;
-		for (int i = 0; i < 3; i++) {
-			int cx = right - 34 - (2 - i) * 100;
-			_buttons[i] = Common::Rect(cx - 34, 50 - 34, cx + 34, 50 + 34);
-		}
-		const int vx = kM + rw + 40;
 		_verbH = 60;
 		_verbGap = 10;
 		_verbFont = 18;
-		_verbArea = Common::Rect(vx, 100, right, 100 + 3 * _verbH + 2 * _verbGap);
+		const int vx = _roomBox.right + _verbGap; // (the gap as the others)
+		// SAVE / LOAD / MENU: a row of square buttons over the verbs, in
+		// their columns
+		_roundButtons = false;
+		{
+			const int vw = (right - vx - 2 * _verbGap) / 3;
+			for (int i = 0; i < 3; i++)
+				_buttons[i] = Common::Rect(vx + i * (vw + _verbGap), 14, vx + i * (vw + _verbGap) + vw, 14 + _verbH);
+		}
+		_verbArea = Common::Rect(vx, 14 + _verbH + _verbGap, right, 14 + _verbH + _verbGap + 3 * _verbH + 2 * _verbGap);
 		_textNormal = Common::Rect(vx, _verbArea.bottom + 12, right, _h - 12);
-		_textMax = Common::Rect(vx, 96, right, _h - 12);
+		_textMax = Common::Rect(vx, _verbArea.top, right, _h - 12);
 		_textFont = 17;
 		_titleFont = 16;
 		_itemSize = Common::Point(34, 62);
@@ -1381,7 +1390,9 @@ void ModernUI::drawButtons() {
 				roundRect(r, 10, rgb(25, 25, 30), rgb(220, 220, 220), 2);
 			else
 				bevel(r, held, 2);
-			textCentered(kTitleButtonLabels[i], r, dark ? rgb(255, 255, 255) : rgb(0, 0, 0), font(14, true));
+			// (a row over the verbs: lettered as they are; on the picture's
+			// title bar in portrait: small)
+			textCentered(kTitleButtonLabels[i], r, dark ? rgb(255, 255, 255) : rgb(0, 0, 0), font(_portrait ? 14 : _verbFont, true));
 		}
 		if (held && !_holdFired && i < 2) {
 			const float hold = i < 2 ? kSaveHold : kMenuHold;
