@@ -82,7 +82,7 @@ const uint16 kFont = 0x5F92;
 
 C64UI::C64UI(Machine *machine) : _machine(machine), _w(0), _h(0), _portrait(false), _look(kLookC64), _layout(kLayoutC2),
 		_screen(nullptr), _pendingFrames(0), _scroll(0), _down(false), _button(false), _pressButton(-1), _pressTime(0), _holdFired(false), _tapFrames(0),
-		_scrolling(false), _scrollStart(0), _mapped(false), _lastSig(0), _drawn(false) {
+		_scrolling(false), _scrollStart(0), _mapped(false), _loading(false), _lastSig(0), _drawn(false) {
 }
 
 C64UI::~C64UI() {
@@ -810,6 +810,7 @@ uint32 C64UI::signature() const {
 	if (_screen)
 		for (int i = 0; i < kW * kH; i += 4)
 			h = (h ^ (_screen[i] | _screen[i + 1] << 8 | _screen[i + 2] << 16 | _screen[i + 3] << 24)) * 16777619u;
+	h ^= _loading * 65537;
 	h ^= _history.size() * 7919 + _scroll * 131 + (_pressButton + 1) * 977 + _holdFired * 3 + _look * 5 + _layout * 17;
 	if (_pressButton >= 0 && !_holdFired)
 		h ^= g_system->getMillis();
@@ -825,6 +826,13 @@ bool C64UI::draw(const byte *screen) {
 	_drawn = true;
 	const bool dark = _look == kLookDark;
 	_out.fillRect(Common::Rect(_w, _h), dark ? rgb(12, 12, 16) : _pal[0]);
+	if (_loading) {
+		// (not the crack's intro and the disk prompt: just a moment's wait)
+		const Graphics::Font *f = font(26, true, false);
+		text("Uninvited", 0, _h / 2 - 40, _w, rgb(255, 255, 255), f, true);
+		text("Loading...", 0, _h / 2 + 4, _w, rgb(150, 150, 160), font(20, false, false), true);
+		return true;
+	}
 	if (_layout == kLayoutOriginal) {
 		blit(Common::Rect(kW, kH), _whole);
 		drawButtons();

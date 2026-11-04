@@ -435,6 +435,7 @@ void DarkLordEngine::applyLayout() {
 }
 
 void DarkLordEngine::present() {
+	_ui->setLoading(_machine && _machine->frameCount() <= kUninvitedBootFrames);
 	if (!_ui->draw(_c64Screen))
 		return;
 	const Graphics::ManagedSurface &o = _ui->output();

@@ -60,6 +60,8 @@ public:
 	void setup(int w, int h, bool portrait, Look look, Layout layout, const Graphics::PixelFormat &format);
 	/** After each C64 frame: reads the text window. */
 	void frame(const byte *screen);
+	/** While the game starts (the crack's intro, the disk swap): a loading screen instead. */
+	void setLoading(bool loading) { _loading = loading; }
 	/** Forgets the text read so far (the start-up's messages). */
 	void clearText();
 	/** Draws everything; false if nothing changed since last time. */
@@ -142,6 +144,7 @@ private:
 	void drawVerbs();
 	void drawText();
 	void drawPieces();
+	bool _loading;
 	uint32 _lastSig;
 	bool _drawn;
 	uint32 signature() const;

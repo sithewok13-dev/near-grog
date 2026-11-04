@@ -65,7 +65,7 @@ const NesGameMap kMaps[] = {
 
 const int kGoodsRows = 7;      // name table rows 5, 7 ... 17
 const int kGoodsMarkerCol = 19;
-const int kGoodsCols = 11;     // the marker and the name
+const int kGoodsCols = 10;     // the marker and the name (not the next column: the list's scroll bar)
 
 // Blank, or the ruled lines between text rows (seen while Deja Vu scrolls)
 bool isBlank(byte t) { return t == 0x7E || t == 0x7F || t == 0xDE || t == 0xDF; }
@@ -74,7 +74,7 @@ bool isBlank(byte t) { return t == 0x7E || t == 0x7F || t == 0xDE || t == 0xDF; 
 
 NesUI::NesUI(Nes *nes, GameId game) : _nes(nes), _game(game), _map(&kMaps[game]), _w(0), _h(0), _portrait(false),
 		_look(kLookNes), _textMode(false), _haveSnapshot(false), _textFg(0x0F), _textBg(0x30), _haveTextColours(false), _verbPaper(0x30), _commandFrames(0),
-		_scroll(0), _pad(0), _continueFrames(0), _pressButton(-1), _pressTime(0), _holdFired(false), _lastSignature(0), _drawn(false), _fullMode(false), _padHeld(0), _padTouch(-1), _padLast(0), _padLinger(0), _padShown(false), _fullStartTime(0), _fullTouching(false), _fullConsumed(false), _tapWait(0), _tapSig(0), _tapPending(false), _tapTime(0), _smart(0), _smartIdle(0), _flashVerb(-1), _flashUntil(0), _textDrag(false), _dragged(false), _dragScroll(0) {
+		_scroll(0), _pad(0), _continueFrames(0), _pressButton(-1), _pressTime(0), _holdFired(false), _lastSignature(0), _drawn(false), _fullMode(false), _padHeld(0), _padTouch(-1), _padLast(0), _padLinger(0), _padShown(false), _fullStartTime(0), _fullTouching(false), _fullConsumed(false), _tapWait(0), _tapSig(0), _tapPending(false), _tapTime(0), _smart(0), _smartIdle(0), _flashVerb(-1), _flashUntil(0), _textDrag(false), _dragged(false), _dragScroll(0), _dropPage(false) {
 	memset(_snapshot, 0, sizeof(_snapshot));
 	memset(_pal, 0, sizeof(_pal));
 	_goal.active = false;
@@ -345,6 +345,7 @@ void NesUI::update() {
 			reply.toUppercase();
 			_smartIdle = 1; // (a reply has come)
 			if (reply.contains("OPEN THE DOOR") || reply.contains("DOOR IS CLOSED")) {
+				_dropPage = true; // (the double tap opens it: the line would make no sense)
 				_smart = 2;
 				_smartIdle = 0;
 				_continueFrames = 6;
@@ -565,6 +566,11 @@ void NesUI::readText() {
 
 // The text read since the last command goes into the history
 void NesUI::commitPage() {
+	if (_dropPage) {
+		_dropPage = false;
+		_page.clear();
+		return;
+	}
 	for (uint i = 0; i < _page.size(); i++)
 		_history.push_back(_page[i]);
 	_page.clear();
@@ -1056,7 +1062,7 @@ void NesUI::drawText() {
 		roundRect(b, 6, _pal[_textBg], _pal[_textFg]);
 	// What to show: the history and the page being written
 	Common::Array<Common::Array<byte> > lines = _history;
-	for (uint i = 0; i < _page.size(); i++)
+	for (uint i = 0; i < _page.size() && !_dropPage; i++)
 		if (!_page[i].empty())
 			lines.push_back(_page[i]);
 	if (dark) {

@@ -144,6 +144,7 @@ private:
 	int verbIndex(const char *name) const;
 	bool _textDrag, _dragged;  // a swipe in the text
 	int _dragScroll;
+	bool _dropPage;            // the page being read is left out of the history
 	int _flashVerb;            // the verb just tapped, lit for a moment
 	uint32 _flashUntil;
 	int selectedVerb() const;
