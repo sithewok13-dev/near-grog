@@ -717,10 +717,22 @@ void C64UI::drawText() {
 			text("Tap to continue", bar.left, bar.top + (bar.height() - (f ? f->getFontHeight() : 16)) / 2, bar.width(), rgb(255, 255, 255), f, true);
 			b.bottom = bar.top - 4;
 		} else {
-			const Common::Rect to = fit(Common::Rect(b.left + 6, b.bottom - 50, b.right - 6, b.bottom - 6), kContinueBar);
-			_out.fillRect(Common::Rect(b.left, to.top - 6, b.right, b.bottom), _pal[0]);
-			blit(kContinueBar, to);
-			b.bottom = to.top - 8;
+			// The game's bar, stretched across the box as the game has it
+			// across its verbs: brown, a double yellow frame, its own
+			// lettering in the middle (the letters keep their shape)
+			const int bh = 44;
+			const float k = bh / 16.0f;
+			const Common::Rect bar(b.left, b.bottom - bh, b.right, b.bottom);
+			_out.fillRect(bar, _pal[kBrown]);
+			const int fx = (int)(5 * k), fy = (int)(2 * k), fw = (int)(2 * k);
+			const Common::Rect fo(bar.left + fx, bar.top + fy, bar.right - fx, bar.bottom - fy);
+			_out.fillRect(fo, _pal[7]);
+			_out.fillRect(Common::Rect(fo.left + fw, fo.top + fw, fo.right - fw, fo.bottom - fw), _pal[kBrown]);
+			const Common::Rect letters(40, 5, 160, 11);
+			const int lw = (int)(letters.width() * k), lh = (int)(letters.height() * k);
+			const int lx = bar.left + (bar.width() - lw) / 2, ly = bar.top + (int)(5 * k);
+			blitInk(letters, Common::Rect(lx, ly, lx + lw, ly + lh), 7, _pal[7]);
+			b.bottom = bar.top - 4;
 		}
 	}
 	// The paragraphs read so far, flowed to the width
