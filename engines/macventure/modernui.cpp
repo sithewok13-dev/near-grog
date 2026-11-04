@@ -302,6 +302,8 @@ Common::Rect ModernUI::textBox() const {
 
 Common::Rect ModernUI::textArea() const {
 	Common::Rect t = textBox();
+	if (t.width() < 80 || t.height() < 60)
+		return Common::Rect(); // no text window laid out (the Original layout)
 	if (_look == kLookDark)
 		return Common::Rect(t.left + 14, t.top + 12, t.right - 36, t.bottom - 10);
 	// title bar, then the text left of the scroll bar
@@ -961,6 +963,12 @@ void ModernUI::rewrap() {
 		return;
 	const Graphics::Font *f = font(_textFont, false, _look == kLookDark);
 	const int width = textArea().width();
+	if (width <= 0) { // (no text window)
+		_wrapFont = nullptr;
+		_wrapWidth = 0;
+		_lines.clear();
+		return;
+	}
 	_wrapFont = f;
 	_wrapWidth = width;
 	_lines.clear();
