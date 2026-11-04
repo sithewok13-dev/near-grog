@@ -191,6 +191,10 @@ protected:
 
 	bool handleEvent_touchBegan(Common::Event &event, int x, int y);
 	bool handleEvent_touchMoved(Common::Event &event, int x, int y);
+	bool handleEvent_touchEnded(Common::Event &event, int x, int y);
+	// Near-Grog: its layouts take touches as they are (down, move, up) in
+	// direct mode, not as taps and long presses
+	bool nearGrogRawTouch() const;
 
 	void handleEvent_mouseLeftButtonDown(Common::Event &event, int x, int y);
 	void handleEvent_mouseLeftButtonUp(Common::Event &event, int x, int y);

@@ -44,6 +44,8 @@ NesVentureEngine::NesVentureEngine(OSystem *syst, const NesGameDescription *desc
 }
 
 NesVentureEngine::~NesVentureEngine() {
+	// Near-Grog: touches as they are no more once it has gone
+	ConfMan.setBool("neargrog_raw_touch", false, Common::ConfigManager::kTransientDomain);
 	delete _ui;
 	delete _nes;
 }
@@ -238,6 +240,9 @@ bool NesVentureEngine::handleEvents() {
 		case Common::EVENT_LBUTTONDOWN:
 			_ui->press(ev.mouse);
 			break;
+		case Common::EVENT_MOUSEMOVE:
+			_ui->move(ev.mouse);
+			break;
 		case Common::EVENT_LBUTTONUP:
 			switch (_ui->release(ev.mouse)) {
 			case NesUI::kSaveDialog: saveGameDialog(); break;
@@ -302,6 +307,9 @@ void NesVentureEngine::present() {
 }
 
 Common::Error NesVentureEngine::run() {
+	// Near-Grog: the layouts take touches as they are - down, move, up - so
+	// a swipe scrolls and a hold holds (iOS, direct touch mode)
+	ConfMan.setBool("neargrog_raw_touch", true, Common::ConfigManager::kTransientDomain);
 	_nes = new Nes();
 	if (!loadCartridge())
 		return Common::Error(Common::kNoGameDataFoundError, "Could not read the NES cartridge (.nes file)");

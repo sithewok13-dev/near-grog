@@ -51,6 +51,11 @@ bool OSystem_iOS7::pollEvent(Common::Event &event) {
 				return false;
 			break;
 
+		case kInputTouchEnded:
+			if (!handleEvent_touchEnded(event, internalEvent.value1, internalEvent.value2))
+				return false;
+			break;
+
 		case kInputTouchMoved:
 			if (!handleEvent_touchMoved(event, internalEvent.value1, internalEvent.value2))
 				return false;
@@ -181,6 +186,14 @@ bool OSystem_iOS7::pollEvent(Common::Event &event) {
 	return false;
 }
 
+// Near-Grog's layouts (set by the engine while it runs; not in ScummVM's
+// own dialogs, which want taps)
+bool OSystem_iOS7::nearGrogRawTouch() const {
+	if (_currentTouchMode != kTouchModeDirect || !ConfMan.getBool("neargrog_raw_touch"))
+		return false;
+	return !dynamic_cast<iOSGraphicsManager *>(_graphicsManager)->isOverlayVisible();
+}
+
 bool OSystem_iOS7::handleEvent_touchBegan(Common::Event &event, int x, int y) {
 	_lastPadX = x;
 	_lastPadY = y;
@@ -188,9 +201,24 @@ bool OSystem_iOS7::handleEvent_touchBegan(Common::Event &event, int x, int y) {
 	if (_currentTouchMode == kTouchModeDirect) {
 		Common::Point mouse(x, y);
 		dynamic_cast<iOSGraphicsManager *>(_graphicsManager)->notifyMousePosition(mouse);
+		if (nearGrogRawTouch()) {
+			event.type = Common::EVENT_LBUTTONDOWN;
+			handleEvent_mouseEvent(event, 0, 0);
+			return true;
+		}
 	}
 
 	return false;
+}
+
+bool OSystem_iOS7::handleEvent_touchEnded(Common::Event &event, int x, int y) {
+	if (!nearGrogRawTouch())
+		return false;
+	Common::Point mouse(x, y);
+	dynamic_cast<iOSGraphicsManager *>(_graphicsManager)->notifyMousePosition(mouse);
+	event.type = Common::EVENT_LBUTTONUP;
+	handleEvent_mouseEvent(event, 0, 0);
+	return true;
 }
 
 bool OSystem_iOS7::handleEvent_touchMoved(Common::Event &event, int x, int y) {
@@ -388,6 +416,8 @@ bool OSystem_iOS7::handleEvent_swipe(Common::Event &event, int direction, int to
 }
 
 bool OSystem_iOS7::handleEvent_tap(Common::Event &event, UIViewTapDescription type, int touches) {
+	if (touches == 1 && nearGrogRawTouch())
+		return false; // (the touch itself was the click)
 	if (touches == 1) {
 		if (type == kUIViewTapSingle) {
 			event.type = Common::EVENT_LBUTTONDOWN;
@@ -421,6 +451,8 @@ bool OSystem_iOS7::handleEvent_tap(Common::Event &event, UIViewTapDescription ty
 }
 
 bool OSystem_iOS7::handleEvent_longPress(Common::Event &event, UIViewLongPressDescription type, int touches) {
+	if (touches == 1 && nearGrogRawTouch())
+		return false;
 	if (touches == 1) {
 		if (type == UIViewLongPressStarted) {
 			event.type = Common::EVENT_LBUTTONDOWN;

@@ -166,6 +166,7 @@ private:
 	uint32 rgb(byte r, byte g, byte b) const { return _format.RGBToColor(r, g, b); }
 	void buildLookup();
 	void blitScaled(const Graphics::ManagedSurface &src, const Common::Rect &srcRect, const Common::Rect &dst, int key = -1);
+	void blendPixel(int x, int y, uint32 color, float alpha);
 	void fillRoundRect(const Common::Rect &r, int radius, uint32 color);
 	void roundRect(const Common::Rect &r, int radius, uint32 fill, uint32 outline, int width);
 	void fillCircle(int cx, int cy, int r, uint32 color);

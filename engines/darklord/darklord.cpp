@@ -61,6 +61,8 @@ DarkLordEngine::DarkLordEngine(OSystem *syst, const ADGameDescription *desc) :
 }
 
 DarkLordEngine::~DarkLordEngine() {
+	// Near-Grog: touches as they are no more once it has gone
+	ConfMan.setBool("neargrog_raw_touch", false, Common::ConfigManager::kTransientDomain);
 	if (_sid) {
 		_sid->stop();
 		delete _sid;
@@ -590,6 +592,10 @@ bool DarkLordEngine::handleEvents() {
 }
 
 Common::Error DarkLordEngine::run() {
+	// Near-Grog: the layouts take touches as they are - down, move, up - so
+	// a swipe scrolls and a hold holds (iOS, direct touch mode)
+	if (_uninvited)
+		ConfMan.setBool("neargrog_raw_touch", true, Common::ConfigManager::kTransientDomain);
 	// Both sides, loose or zipped, under any names
 	Common::FSList files;
 	Common::FSNode(ConfMan.getPath("path")).getChildren(files, Common::FSNode::kListFilesOnly);

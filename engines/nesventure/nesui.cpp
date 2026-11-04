@@ -73,7 +73,7 @@ bool isBlank(byte t) { return t == 0x7E || t == 0x7F || t == 0xDE || t == 0xDF; 
 
 NesUI::NesUI(Nes *nes, GameId game) : _nes(nes), _game(game), _map(&kMaps[game]), _w(0), _h(0), _portrait(false),
 		_look(kLookNes), _textMode(false), _haveSnapshot(false), _textFg(0x0F), _textBg(0x30), _haveTextColours(false), _verbPaper(0x30), _commandFrames(0),
-		_scroll(0), _pad(0), _continueFrames(0), _pressButton(-1), _pressTime(0), _holdFired(false), _lastSignature(0), _drawn(false), _fullMode(false), _padHeld(0), _padTouch(-1), _padLast(0), _padLinger(0), _padShown(false), _fullStartTime(0), _fullTouching(false), _fullConsumed(false), _tapWait(0), _tapSig(0), _haveNext(false), _nextLead(0), _flashVerb(-1), _flashUntil(0) {
+		_scroll(0), _pad(0), _continueFrames(0), _pressButton(-1), _pressTime(0), _holdFired(false), _lastSignature(0), _drawn(false), _fullMode(false), _padHeld(0), _padTouch(-1), _padLast(0), _padLinger(0), _padShown(false), _fullStartTime(0), _fullTouching(false), _fullConsumed(false), _tapWait(0), _tapSig(0), _tapPending(false), _tapTime(0), _smart(0), _smartIdle(0), _flashVerb(-1), _flashUntil(0), _textDrag(false), _dragged(false), _dragScroll(0) {
 	memset(_snapshot, 0, sizeof(_snapshot));
 	memset(_pal, 0, sizeof(_pal));
 	_goal.active = false;
@@ -206,6 +206,13 @@ Common::Point NesUI::itemPoint(const NesItem &it) const {
 	return Common::Point(it.col * 8 + 4, rowY(it.row) + 4);
 }
 
+int NesUI::verbIndex(const char *name) const {
+	for (int i = 0; i < _map->verbCount; i++)
+		if (!strcmp(_map->verbs[i].name, name))
+			return i;
+	return -1;
+}
+
 // The chosen verb's marker is filled in: the one marker unlike the rest
 int NesUI::selectedVerb() const {
 	const uint n = _map->verbCount;
@@ -319,6 +326,65 @@ void NesUI::update() {
 			if (count[i] > count[_verbPaper])
 				_verbPaper = i;
 	}
+	if (_tapPending && g_system->getMillis() - _tapTime >= 320) {
+		_tapPending = false;
+		_steps.clear();
+		_smart = 0;
+		steerTo(_tapPoint);
+	}
+	if (_smart == 1) {
+		// the reply to MOVE (read as it's written): a shut door says so
+		if (_textMode && !_page.empty()) {
+			Common::String reply;
+			for (uint i = 0; i < _page.size(); i++)
+				reply += decode(_page[i]) + " ";
+			for (uint i = 0; i < reply.size(); i++)
+				while (i + 1 < reply.size() && reply[i] == ' ' && reply[i + 1] == ' ')
+					reply.deleteChar(i + 1);
+			reply.toUppercase();
+			_smartIdle = 1; // (a reply has come)
+			if (reply.contains("OPEN THE DOOR") || reply.contains("DOOR IS CLOSED")) {
+				_smart = 2;
+				_smartIdle = 0;
+				_continueFrames = 6;
+			}
+		} else if (!_textMode && !_goal.active && _steps.empty() && _smartIdle) {
+			_smart = 0; // gone through, or something else was said
+		}
+	} else if (_smart == 2 && _textMode) {
+		// the reply clicked through (a press now and then: one may only
+		// finish the writing)
+		if (++_smartIdle % 20 == 0 && !_continueFrames && (_nes->lineTable(200) & 1))
+			_continueFrames = 6;
+	} else if (_smart == 2 && !_textMode) {
+		const int op = verbIndex("OPEN"), mv = verbIndex("MOVE");
+		_smart = 0;
+		if (op >= 0 && mv >= 0) {
+			_smart = 3;
+			_smartIdle = 0;
+			steerTo(itemPoint(_map->verbs[op]));
+			then(_smartTarget);
+			then(itemPoint(_map->verbs[mv]));
+			then(_smartTarget);
+		}
+	} else if (_smart == 3) {
+		// opening, then going: the door's reply clicked through
+		if (_textMode) {
+			_smartIdle = 0;
+			if (!_continueFrames && (_nes->lineTable(200) & 1))
+				_continueFrames = 6;
+		} else if (!_goal.active && ++_smartIdle > 20) {
+			_smartIdle = 0;
+			if (_steps.empty()) {
+				_smart = 0;
+			} else {
+				const Step st = _steps[0];
+				_steps.remove_at(0);
+				steerTo(st.target);
+				_goal.frames = -4;
+			}
+		}
+	}
 	if (_textMode) {
 		readText();
 	} else if (wasText) {
@@ -328,6 +394,10 @@ void NesUI::update() {
 	}
 	_pad = 0;
 	if (_continueFrames) {
+		// (only while the text is really up: A once it has gone would act
+		// on the commands)
+		if (!(_nes->lineTable(200) & 1) && _continueFrames >= 3)
+			_continueFrames = 2;
 		_continueFrames--;
 		_pad = _continueFrames >= 3 ? Nes::kA : 0;
 		return;
@@ -359,12 +429,12 @@ void NesUI::steer() {
 		_pad = Nes::kA;
 		if (--_goal.aFrames == 0) {
 			_goal.active = false;
-			if (_haveNext) {
-				_haveNext = false;
-				const uint8 lead = _nextLead;
-				steerTo(_next);
-				_goal.lead = lead;
-				_goal.frames = lead ? -8 : -4; // (let A go first)
+			if (!_steps.empty() && !_textMode && _smart != 3) {
+				const Step st = _steps[0];
+				_steps.remove_at(0);
+				steerTo(st.target);
+				_goal.lead = st.lead;
+				_goal.frames = st.lead ? -8 : -4; // (let A go first)
 			}
 		}
 		return;
@@ -567,7 +637,20 @@ NesUI::Action NesUI::press(Common::Point p) {
 	for (int i = 0; i < 3; i++)
 		if (_buttons[i].contains(p))
 			_pressButton = i;
+	// a swipe in the text scrolls it
+	_textDrag = _pressButton < 0 && _textBox.contains(p);
+	_dragged = false;
+	_dragScroll = _scroll;
 	return kNone;
+}
+
+void NesUI::move(Common::Point p) {
+	if (!_textDrag)
+		return;
+	if (ABS(p.y - _pressPoint.y) > 12)
+		_dragged = true;
+	if (_dragged)
+		_scroll = MAX(0, _dragScroll + (p.y - _pressPoint.y) / 26);
 }
 
 NesUI::Action NesUI::tick() {
@@ -630,6 +713,11 @@ NesUI::Action NesUI::release(Common::Point p) {
 			return kNone;
 		return button == 0 ? kSaveDialog : button == 1 ? kLoadDialog : kTray;
 	}
+	if (_textDrag) {
+		_textDrag = false;
+		if (_dragged)
+			return kNone; // a swipe, not a tap
+	}
 	// While a page of text shows, a tap turns the page
 	if (_textMode) {
 		_continueFrames = 6;
@@ -645,15 +733,38 @@ NesUI::Action NesUI::release(Common::Point p) {
 			src = Common::Rect(src.left + 8, src.top + 8, src.right - 9, src.bottom - 8);
 			box.grow(-_picBox.width() / 50);
 		}
-		steerTo(toNes(box, src, CLIP<int16>(p.x, box.left, box.right - 1) == p.x && CLIP<int16>(p.y, box.top, box.bottom - 1) == p.y ? p : Common::Point(CLIP<int16>(p.x, box.left, box.right - 1), CLIP<int16>(p.y, box.top, box.bottom - 1))));
+		const Common::Point at = toNes(box, src, Common::Point(CLIP<int16>(p.x, box.left, box.right - 1), CLIP<int16>(p.y, box.top, box.bottom - 1)));
+		const int mv = verbIndex("MOVE");
+		if (mv < 0) {
+			steerTo(at);
+			return kNone;
+		}
+		// Shadowgate, Deja Vu: a double tap goes there (MOVE; a shut door
+		// is opened first); a single tap, a moment later, uses the verb
+		const uint32 now = g_system->getMillis();
+		if (_tapPending && now - _tapTime < 320 && ABS(at.x - _tapPoint.x) < 16 && ABS(at.y - _tapPoint.y) < 16) {
+			_tapPending = false;
+			_steps.clear();
+			_smart = 1;
+			_smartIdle = 0;
+			_smartTarget = at;
+			steerTo(itemPoint(_map->verbs[mv]));
+			then(at);
+			_flashVerb = mv;
+			_flashUntil = now + 250;
+			return kNone;
+		}
+		_tapPending = true;
+		_tapPoint = at;
+		_tapTime = now;
 		return kNone;
 	}
 	for (uint i = 0; i < _verbCells.size(); i++)
 		if (_verbCells[i].contains(p)) {
 			_flashVerb = i;
 			_flashUntil = g_system->getMillis() + 250;
-			_haveNext = false;
-			_nextLead = 0;
+			_steps.clear();
+			_smart = 0;
 			steerTo(itemPoint(_map->verbs[i]));
 			return kNone;
 		}
@@ -673,18 +784,17 @@ NesUI::Action NesUI::release(Common::Point p) {
 		const Common::Rect in = moveMapRect();
 		if (in.contains(p)) {
 			// Shadowgate and Deja Vu go by their MOVE command: choose it, then the exit
-			_haveNext = false;
-			for (int i = 0; i < _map->verbCount; i++)
-				if (!strcmp(_map->verbs[i].name, "MOVE")) {
-					steerTo(itemPoint(_map->verbs[i]));
-					_haveNext = true;
-					_next = moveTarget(toNes(in, _map->moveBox, p));
-					_nextLead = Nes::kDown; // from MOVE into the map
-					_flashVerb = i;
-					_flashUntil = g_system->getMillis() + 250;
-				}
-			if (!_haveNext)
+			_steps.clear();
+			_smart = 0;
+			const int mv = verbIndex("MOVE");
+			if (mv >= 0) {
+				steerTo(itemPoint(_map->verbs[mv]));
+				then(moveTarget(toNes(in, _map->moveBox, p)), Nes::kDown); // from MOVE into the map
+				_flashVerb = mv;
+				_flashUntil = g_system->getMillis() + 250;
+			} else {
 				steerTo(moveTarget(toNes(in, _map->moveBox, p)));
+			}
 		}
 		return kNone;
 	}

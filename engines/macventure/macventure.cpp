@@ -86,6 +86,8 @@ MacVentureEngine::MacVentureEngine(OSystem *syst, const ADGameDescription *gameD
 }
 
 MacVentureEngine::~MacVentureEngine() {
+	// Near-Grog: touches as they are no more once it has gone
+	ConfMan.setBool("neargrog_raw_touch", false, Common::ConfigManager::kTransientDomain);
 	debug("MacVenture::~MacVentureEngine()");
 
 	if (_rnd)
@@ -131,6 +133,9 @@ MacVentureEngine::~MacVentureEngine() {
 }
 
 Common::Error MacVentureEngine::run() {
+	// Near-Grog: the layouts take touches as they are - down, move, up - so
+	// a swipe scrolls and a hold holds (iOS, direct touch mode)
+	ConfMan.setBool("neargrog_raw_touch", true, Common::ConfigManager::kTransientDomain);
 	debug("MacVenture::MacVentureEngine::init()");
 
 	// Near-Grog: the Windows versions get a resource fork made from their program

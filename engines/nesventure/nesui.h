@@ -87,6 +87,7 @@ public:
 
 	/** A touch (screen coordinates); returns what the engine should do. */
 	Action press(Common::Point p);
+	void move(Common::Point p);
 	Action release(Common::Point p);
 	Action tick(); // holds that come due
 	void scroll(int lines);
@@ -125,9 +126,24 @@ private:
 		uint8 lead;  // a press to make first
 		Common::Point last;
 	} _goal;
-	bool _haveNext;            // a second place to go once there (MOVE, then the exit)
-	Common::Point _next;
-	uint8 _nextLead;
+	// Places to go next, in turn, once there (MOVE, then the exit)
+	struct Step {
+		Common::Point target;
+		uint8 lead;        // a press to make first
+	};
+	Common::Array<Step> _steps;
+	void then(Common::Point target, uint8 lead = 0) { Step s; s.target = target; s.lead = lead; _steps.push_back(s); }
+	// A tap on the picture waits a moment to see if it's a double tap
+	bool _tapPending;
+	Common::Point _tapPoint;   // NES pixels
+	uint32 _tapTime;
+	// A double tap: go there (MOVE); a shut door is opened first
+	int _smart;                // 0 none, 1 moving (watching the reply), 2 to open, 3 opening and going
+	Common::Point _smartTarget;
+	int _smartIdle;            // frames quiet since the last step
+	int verbIndex(const char *name) const;
+	bool _textDrag, _dragged;  // a swipe in the text
+	int _dragScroll;
 	int _flashVerb;            // the verb just tapped, lit for a moment
 	uint32 _flashUntil;
 	int selectedVerb() const;

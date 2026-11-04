@@ -28,6 +28,7 @@
 enum InputEvent {
 	kInputTouchBegan,
 	kInputTouchMoved,
+	kInputTouchEnded, // Near-Grog: the finger lifted
 	kInputMouseLeftButtonDown,
 	kInputMouseLeftButtonUp,
 	kInputMouseRightButtonDown,

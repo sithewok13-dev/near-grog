@@ -79,10 +79,21 @@
 }
 
 - (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event {
+	// Near-Grog: the lift, for the layouts that take touches as they are
+	UITouch *t = [touches anyObject];
+	if (t == _touch && [self shouldHandleTouch:t]) {
+		CGPoint p = [self getLocationInView:t];
+		[[self view] addEvent:InternalEvent(kInputTouchEnded, p.x, p.y)];
+	}
 	_touch = nil;
 }
 
 - (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event {
+	UITouch *t = [touches anyObject];
+	if (t == _touch && [self shouldHandleTouch:t]) {
+		CGPoint p = [self getLocationInView:t];
+		[[self view] addEvent:InternalEvent(kInputTouchEnded, p.x, p.y)];
+	}
 	_touch = nil;
 }
 

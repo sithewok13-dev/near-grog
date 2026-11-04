@@ -1061,22 +1061,39 @@ void ModernUI::blitScaled(const Graphics::ManagedSurface &src, const Common::Rec
 	}
 }
 
+// A pixel part covered by a colour (alpha 0-1), over what's there
+void ModernUI::blendPixel(int x, int y, uint32 color, float alpha) {
+	if (x < 0 || y < 0 || x >= _w || y >= _h || alpha <= 0)
+		return;
+	if (alpha >= 1) {
+		_out.setPixel(x, y, color);
+		return;
+	}
+	uint8 r, g, b, br, bg, bb;
+	_out.format.colorToRGB(color, r, g, b);
+	_out.format.colorToRGB(_out.getPixel(x, y), br, bg, bb);
+	_out.setPixel(x, y, _out.format.RGBToColor((uint8)(br + (r - br) * alpha), (uint8)(bg + (g - bg) * alpha), (uint8)(bb + (b - bb) * alpha)));
+}
+
+// Smooth: each pixel at the curve blends by how much of it is inside
 void ModernUI::fillRoundRect(const Common::Rect &r, int radius, uint32 color) {
 	radius = MIN<int>(radius, MIN(r.width(), r.height()) / 2);
-	for (int y = r.top; y < r.bottom; y++) {
-		int inset = 0;
-		int dy = -1;
-		if (y < r.top + radius)
-			dy = r.top + radius - y;
-		else if (y >= r.bottom - radius)
-			dy = y - (r.bottom - radius - 1);
-		if (dy > 0) {
-			float d = (float)radius - sqrtf((float)(radius * radius - (dy - 0.5f) * (dy - 0.5f)));
-			inset = (int)(d + 0.5f);
+	for (int y = MAX<int>(0, r.top); y < MIN<int>(_h, r.bottom); y++) {
+		const float py = y + 0.5f;
+		const bool corner = py < r.top + radius || py > r.bottom - radius;
+		if (!corner) {
+			const int x0 = MAX<int>(0, r.left), x1 = MIN<int>(_w, r.right);
+			if (x1 > x0)
+				_out.hLine(x0, y, x1 - 1, color);
+			continue;
 		}
-		const int x0 = MAX<int>(0, r.left + inset), x1 = MIN<int>(_w, r.right - inset);
-		if (y >= 0 && y < _h && x1 > x0)
-			_out.hLine(x0, y, x1 - 1, color);
+		for (int x = MAX<int>(0, r.left); x < MIN<int>(_w, r.right); x++) {
+			const float px = x + 0.5f;
+			const float cx = CLIP<float>(px, r.left + radius, r.right - radius), cy = CLIP<float>(py, r.top + radius, r.bottom - radius);
+			const float dx = px - cx, dy = py - cy;
+			const float inside = (dx == 0 && dy == 0) ? 1.0f : radius - sqrtf(dx * dx + dy * dy);
+			blendPixel(x, y, color, CLIP(inside + 0.5f, 0.0f, 1.0f));
+		}
 	}
 }
 
@@ -1259,16 +1276,19 @@ void ModernUI::drawHoldRing(const Common::Rect &r, bool round, float progress) {
 	const uint32 col = _look == kLookDark ? rgb(kBlue[0], kBlue[1], kBlue[2]) : rgb(kNavy[0], kNavy[1], kNavy[2]);
 	if (round) {
 		const int cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2, rad = r.width() / 2 + 7;
-		for (int y = -rad; y <= rad; y++) {
-			for (int x = -rad; x <= rad; x++) {
-				const int d2 = x * x + y * y;
-				if (d2 > rad * rad || d2 < (rad - 5) * (rad - 5))
+		for (int y = -rad - 1; y <= rad + 1; y++) {
+			for (int x = -rad - 1; x <= rad + 1; x++) {
+				const float fx = x + 0.5f, fy = y + 0.5f;
+				const float d = sqrtf(fx * fx + fy * fy);
+				float cover = CLIP(rad - d + 0.5f, 0.0f, 1.0f) * CLIP(d - (rad - 5) + 0.5f, 0.0f, 1.0f);
+				if (cover <= 0)
 					continue;
-				float a = atan2f((float)x, (float)-y);
+				float a = atan2f(fx, -fy);
 				if (a < 0)
 					a += 2 * 3.14159265f;
-				if (a <= progress * 2 * 3.14159265f && cx + x >= 0 && cy + y >= 0 && cx + x < _w && cy + y < _h)
-					_out.setPixel(cx + x, cy + y, col);
+				// the leading end soft too
+				cover *= CLIP((progress * 2 * 3.14159265f - a) * d + 0.5f, 0.0f, 1.0f);
+				blendPixel(cx + x, cy + y, col, cover);
 			}
 		}
 	} else {
@@ -1311,15 +1331,16 @@ void ModernUI::drawButtons() {
 				fillCircle(cx, cy, rad, rgb(0, 0, 0));
 				fillCircle(cx, cy, rad - 2, rgb(kGray[0], kGray[1], kGray[2]));
 				// the 3D edge: light top left, dark bottom right
-				for (int y = -rad + 4; y <= rad - 4; y++) {
-					for (int x = -rad + 4; x <= rad - 4; x++) {
-						const int d2 = x * x + y * y;
-						if (d2 > (rad - 4) * (rad - 4) || d2 < (rad - 7) * (rad - 7))
+				for (int y = -rad + 3; y <= rad - 3; y++) {
+					for (int x = -rad + 3; x <= rad - 3; x++) {
+						const float d = sqrtf((x + 0.5f) * (x + 0.5f) + (y + 0.5f) * (y + 0.5f));
+						const float a = CLIP((rad - 4) - d + 0.5f, 0.0f, 1.0f) * CLIP(d - (rad - 7) + 0.5f, 0.0f, 1.0f);
+						if (a <= 0)
 							continue;
 						bool topLeft = (x + y) < 0;
 						if (held)
 							topLeft = !topLeft;
-						_out.setPixel(cx + x, cy + y, topLeft ? rgb(255, 255, 255) : rgb(kDarkGray[0], kDarkGray[1], kDarkGray[2]));
+						blendPixel(cx + x, cy + y, topLeft ? rgb(255, 255, 255) : rgb(kDarkGray[0], kDarkGray[1], kDarkGray[2]), a);
 					}
 				}
 			}
