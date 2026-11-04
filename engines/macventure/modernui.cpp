@@ -1387,7 +1387,8 @@ void ModernUI::drawButtons() {
 			textCentered(kButtonLabels[i], r, dark ? rgb(255, 255, 255) : rgb(0, 0, 0), font(13, true));
 		} else {
 			if (dark)
-				roundRect(r, 10, rgb(25, 25, 30), rgb(220, 220, 220), 2);
+				// as the verbs are (the same fill, corners and edge; lit while held)
+				roundRect(r, _portrait ? 10 : MIN(20, r.height() / 3), held ? rgb(kBlue[0], kBlue[1], kBlue[2]) : rgb(40, 40, 48), rgb(200, 200, 210), 2);
 			else
 				bevel(r, held, 2);
 			// (a row over the verbs: lettered as they are; on the picture's
