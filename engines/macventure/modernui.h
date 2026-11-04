@@ -186,6 +186,8 @@ private:
 	void drawButtons();
 	void drawHoldRing(const Common::Rect &r, bool round, float progress);
 	void drawVerbs();
+	ObjID _magnifyObj;   // an inventory item held: shown big
+	void drawMagnified();
 	void drawObjectImage(ObjID obj, const Common::Rect &dst, bool keepAspect);
 	void drawSelf(const Common::Rect &r);
 	void drawShelf();

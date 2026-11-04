@@ -75,7 +75,7 @@ const byte kBlue[3] = { 60, 120, 200 };
 ModernUI::ModernUI(Gui *gui, MacVentureEngine *engine) :
 	_gui(gui), _engine(engine), _w(0), _h(0), _portrait(false), _layout(kLayoutC2), _look(kLookWin31), _opacity(100),
 	_verbH(0), _verbGap(0), _verbFont(18), _textFont(17), _titleFont(16), _roomTitleFont(22), _roundButtons(true),
-	_shelfRows(1), _shelfScroll(0), _shelfMax(0), _shelfCount(0), _shelfPending(false), _shelfPressObj(0), _shelfScrolling(false), _shelfVelocity(0), _wrapWidth(0), _wrapFont(nullptr), _scroll(0), _userScrolled(false), _maximized(false),
+	_shelfRows(1), _shelfScroll(0), _shelfMax(0), _shelfCount(0), _shelfPending(false), _shelfPressObj(0), _magnifyObj(0), _shelfScrolling(false), _shelfVelocity(0), _wrapWidth(0), _wrapFont(nullptr), _scroll(0), _userScrolled(false), _maximized(false),
 	_velocity(0), _lastMomentum(0), _pressInside(false), _pressTime(0), _holdFired(false), _pressScroll(0), _lastMoveTime(0),
 	_dragging(false), _engineCapture(false), _lastTitleTap(0), _lastExitTap(0), _lastExitIndex(-1),
 	_forcedObj(0), _lastForcedObj(0), _forcedRef(kNoWindow), _lastForcedRef(kNoWindow), _forced(false), _dialogOpen(false) {
@@ -578,6 +578,10 @@ bool ModernUI::processEvent(Common::Event &event) {
 			const int dx = p.x - _pressPoint.x, dy = p.y - _pressPoint.y;
 			if (_shelfPending && !_shelfScrolling) {
 				if ((dy < -kDragThreshold && -dy > ABS(dx)) || !_shelfItems.contains(p)) {
+					if (_magnifyObj) {
+						_magnifyObj = 0;
+						_gui->markRedraw();
+					}
 					pickUpFromShelf(p);
 					event.mouse = dropPoint(p);
 					_lastPoint = p;
@@ -639,6 +643,12 @@ bool ModernUI::processEvent(Common::Event &event) {
 		if (press.region == kRegionShelf) {
 			const bool pending = _shelfPending;
 			_shelfPending = false;
+			if (_magnifyObj) {
+				// the look ends with the finger; no click
+				_magnifyObj = 0;
+				_gui->markRedraw();
+				return true;
+			}
 			if (_shelfScrolling) {
 				_shelfScrolling = false;
 				_lastMomentum = now;
@@ -867,9 +877,12 @@ void ModernUI::injectToHidden(Common::EventType type, Common::Point hidden) {
 }
 
 void ModernUI::updateHolds() {
-	// A brief hold on a shelf item picks it up
-	if (_press.region == kRegionShelf && _shelfPending && !_shelfScrolling && g_system->getMillis() - _pressTime >= 250) {
-		pickUpFromShelf(_pointer);
+	// A hold on a shelf item, still: a big look at it (until let go); a
+	// drag up or out still picks it up
+	if (_press.region == kRegionShelf && _shelfPending && !_shelfScrolling && !_magnifyObj &&
+			g_system->getMillis() - _pressTime >= 400 && !_dragging) {
+		_magnifyObj = _shelfPressObj;
+		_gui->markRedraw();
 		return;
 	}
 	if (_press.region != kRegionButton || _holdFired || !_pressInside)
@@ -1215,6 +1228,7 @@ void ModernUI::render() {
 	drawButtons();
 	drawFloating();
 	drawDragged();
+	drawMagnified();
 
 	g_system->copyRectToScreen(_out.getPixels(), _out.pitch, 0, 0, _w, _h);
 }
@@ -1420,6 +1434,32 @@ void ModernUI::drawVerbs() {
 }
 
 // An object's picture, as the engine draws it (selected ones inverted)
+// A held inventory item, big, over everything
+void ModernUI::drawMagnified() {
+	if (!_magnifyObj)
+		return;
+	const bool dark = _look == kLookDark;
+	// dim what's behind
+	for (int y = 0; y < _h; y++)
+		for (int x = 0; x < _w; x++) {
+			uint8 r, g, b;
+			_out.format.colorToRGB(_out.getPixel(x, y), r, g, b);
+			_out.setPixel(x, y, _out.format.RGBToColor(r / 3, g / 3, b / 3));
+		}
+	const int side = MIN(_w, _h) * 7 / 10;
+	const Common::Rect panel((_w - side) / 2, (_h - side) / 2, (_w + side) / 2, (_h + side) / 2);
+	Common::Rect in;
+	if (dark) {
+		roundRect(panel, 24, rgb(kPanel[0], kPanel[1], kPanel[2]), rgb(kEdge[0], kEdge[1], kEdge[2]), 2);
+		in = Common::Rect(panel.left + 20, panel.top + 20, panel.right - 20, panel.bottom - 20);
+	} else {
+		in = titled(panel, "Inventory", 15);
+		_out.fillRect(in, rgb(255, 255, 255));
+		in.grow(-16);
+	}
+	drawObjectImage(_magnifyObj, in, true);
+}
+
 void ModernUI::drawObjectImage(ObjID obj, const Common::Rect &dst, bool keepAspect) {
 	_gui->ensureAssetLoaded(obj);
 	ImageAsset *asset = _gui->_assets[obj];
