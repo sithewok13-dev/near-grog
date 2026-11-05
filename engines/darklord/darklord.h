@@ -118,6 +118,7 @@ private:
 	void pointerTo(Common::Point p);
 	void placePointer();
 	void runUninvitedBoot();
+	void loadUninvitedTitle();
 	void setUpGameHelpers();
 	void onTypedKey(int ch);
 	void runHelpers();

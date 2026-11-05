@@ -415,6 +415,41 @@ void DarkLordEngine::runUninvitedBoot() {
 		_ui->clearText(); // (the disk prompt)
 }
 
+// Uninvited's title picture: the original release shows it while it loads
+// (the crack skips it, but leaves it on the disk). Side one, from track 5
+// on read as one run of sectors: the multicolour bitmap at $9500, its
+// screen colours at $B600 and colour RAM at $BB00, on black.
+void DarkLordEngine::loadUninvitedTitle() {
+	Common::Array<byte> run;
+	byte sec[256];
+	for (int t = 5; t <= 14; t++)
+		for (int s = 0; s < 21; s++) {
+			if (!_machine->readSector(0, t, s, sec))
+				return;
+			run.insert_at(run.size(), Common::Array<byte>(sec, 256));
+		}
+	if (run.size() < 0xBB00 + 1000)
+		return;
+	const byte *bitmap = &run[0x9500], *screen = &run[0xB600], *colour = &run[0xBB00];
+	// (a quick check it's the picture: the sky's colours)
+	if ((screen[0] & 15) == 0 && (screen[0] >> 4) == 0)
+		return;
+	Common::Array<byte> pix(320 * 200);
+	for (int c = 0; c < 1000; c++) {
+		const int cy = c / 40, cx = c % 40;
+		const byte cols[4] = { 0, (byte)(screen[c] >> 4), (byte)(screen[c] & 15), (byte)(colour[c] & 15) };
+		for (int r = 0; r < 8; r++) {
+			const byte b = bitmap[c * 8 + r];
+			for (int k = 0; k < 4; k++) {
+				const byte ci = cols[(b >> (6 - 2 * k)) & 3];
+				pix[(cy * 8 + r) * 320 + cx * 8 + k * 2] = ci;
+				pix[(cy * 8 + r) * 320 + cx * 8 + k * 2 + 1] = ci;
+			}
+		}
+	}
+	_ui->setTitle(pix.data());
+}
+
 void DarkLordEngine::applyLayout() {
 	bool found = false;
 	Common::List<Graphics::PixelFormat> formats = g_system->getSupportedFormats();
@@ -684,6 +719,8 @@ Common::Error DarkLordEngine::run() {
 			if (!_machine->addDisk(s))
 				return Common::kNoGameDataFoundError;
 		}
+		if (_uninvited)
+			loadUninvitedTitle();
 		setUpGameHelpers();
 		if (!_machine->boot())
 			return Common::kNoGameDataFoundError;

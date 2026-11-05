@@ -201,6 +201,16 @@ bool Machine::addDisk(Common::SeekableReadStream &d64) {
 	return !_files.empty();
 }
 
+bool Machine::readSector(uint disk, int track, int sector, byte *out) const {
+	if (disk >= _disks.size())
+		return false;
+	const int o = sectorOffset(track, sector);
+	if (o < 0 || o + 256 > (int)_disks[disk].size())
+		return false;
+	memcpy(out, &_disks[disk][o], 256);
+	return true;
+}
+
 int Machine::sectorOffset(int track, int sector) {
 	static const int kSectors[35] = {
 		21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21,

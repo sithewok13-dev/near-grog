@@ -62,6 +62,8 @@ public:
 	void frame(const byte *screen);
 	/** While the game starts (the crack's intro, the disk swap): a loading screen instead. */
 	void setLoading(bool loading) { _loading = loading; }
+	/** The game's title picture (320 x 200 C64 colour indexes) for the loading screen. */
+	void setTitle(const byte *pixels) { _title.resize(320 * 200); memcpy(_title.data(), pixels, 320 * 200); _drawn = false; }
 	// For the cheats
 	bool takeMove() { bool m = _move; _move = false; return m; } ///< a touch on the game (a move may follow)
 	uint historySize() const { return _history.size(); }
@@ -151,6 +153,7 @@ private:
 	void drawText();
 	void drawPieces();
 	bool _loading;
+	Common::Array<byte> _title;
 	bool _move;
 	uint32 _lastSig;
 	bool _drawn;

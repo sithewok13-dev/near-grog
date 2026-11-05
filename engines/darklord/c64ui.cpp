@@ -176,8 +176,11 @@ void C64UI::layout() {
 	auto shelf = [&](const Common::Rect &area) {
 		const int pad = dark ? 10 : 4;
 		const Common::Rect in(area.left + pad, area.top + pad, area.right - pad, area.bottom - pad);
-		const Common::Rect inv = fit(Common::Rect(in.left, in.top, in.left + in.width() * 6 / 10, in.bottom), kInventory, false);
-		const Common::Rect ex = fit(Common::Rect(inv.right + pad * 2, in.top, in.right, in.bottom), kExits, false);
+		// the exits their own shape at the right, as tall as the strip; the
+		// inventory filling the rest (stretched to fit: no gaps)
+		const int exW = MIN<int>(in.width() / 2, in.height() * kExits.width() / kExits.height());
+		const Common::Rect ex(in.right - exW, in.top, in.right, in.bottom);
+		const Common::Rect inv(in.left, in.top, ex.left - pad * 2, in.bottom);
 		_invBox = inv;
 		_exitBox = ex;
 		region(_invBox, kInventory);
@@ -847,6 +850,19 @@ bool C64UI::draw(const byte *screen) {
 	_drawn = true;
 	const bool dark = _look == kLookDark;
 	_out.fillRect(Common::Rect(_w, _h), dark ? rgb(12, 12, 16) : _pal[0]);
+	if (_loading && _title.size() == 320 * 200) {
+		// The game's own title picture (read off its first disk), as big as
+		// it goes on the black, while it starts up
+		const Common::Rect to = fit(Common::Rect(_w, _h), Common::Rect(kW, kH));
+		for (int y = MAX<int>(0, to.top); y < MIN<int>(_h, to.bottom); y++) {
+			const int sy = CLIP<int>((y - to.top) * kH / to.height(), 0, kH - 1);
+			for (int x = MAX<int>(0, to.left); x < MIN<int>(_w, to.right); x++) {
+				const int sx = CLIP<int>((x - to.left) * kW / to.width(), 0, kW - 1);
+				_out.setPixel(x, y, _pal[_title[sy * kW + sx] & 15]);
+			}
+		}
+		return true;
+	}
 	if (_loading) {
 		// (not the crack's intro and the disk prompt: just a moment's wait)
 		const Graphics::Font *f = font(26, true, false);

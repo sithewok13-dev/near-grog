@@ -112,6 +112,8 @@ public:
 		_vic[0x10] = (_vic[0x10] & ~(1 << n)) | (((x >> 8) & 1) << n);
 		_vic[n * 2 + 1] = y & 0xFF;
 	}
+	/** A 256-byte sector of a disk image (false if not there). */
+	bool readSector(uint disk, int track, int sector, byte *out) const;
 	/** Puts the next disk in the drive, as the player would. */
 	void flipDisk() { if (_disks.size() > 1) _currentDisk = (_currentDisk + 1) % _disks.size(); }
 
