@@ -565,7 +565,7 @@ void DosGamesEngine::drawWagonS(byte *scr) {
 		rows += (glyph[r] = mem[kFont + r * 256 + 'S']) != 0;
 	if (rows < 5 || glyph[7])
 		return; // (no font: not loaded)
-	enum { kW = 320, kH = 200, kMaxBlobs = 64 };
+	enum { kW = 320, kH = 200, kMaxBlobs = 4096 }; // (the trail's tree line alone has hundreds of white specks)
 	const int pitch = _screen.pitch;
 	const byte *pal = _pc->palette();
 	auto at = [&](int x, int y) { return scr + 2 * y * pitch + 2 * x; };
@@ -583,7 +583,8 @@ void DosGamesEngine::drawWagonS(byte *scr) {
 		return;
 	static int16 label[kW * kH];
 	static int16 stack[kW * kH * 2];
-	struct Blob { int n, x0, y0, x1, y1; int64 sx, sy; } blobs[kMaxBlobs];
+	struct Blob { int n, x0, y0, x1, y1; int64 sx, sy; };
+	static Blob blobs[kMaxBlobs];
 	for (int pass = 0; pass < 2; pass++) {
 		const int minKind = pass == 0 ? 1 : 2; // white and grey, then white only
 		memset(label, 0, sizeof(label));
@@ -622,14 +623,16 @@ void DosGamesEngine::drawWagonS(byte *scr) {
 				}
 			}
 		// panels side by side (by their left edges), tops level
-		int order[kMaxBlobs], n = 0;
+		static int order[kMaxBlobs];
+		int n = 0;
 		for (int i = 0; i < count; i++)
 			if (blobs[i].n)
 				order[n++] = i;
 		Common::sort(order, order + n, [&](int a, int b) { return blobs[a].x0 < blobs[b].x0; });
-		int run[kMaxBlobs], runLen = 0;
+		static int run[kMaxBlobs], cur[kMaxBlobs];
+		int runLen = 0;
 		for (int i = 0; i < n; i++) {
-			int cur[kMaxBlobs], len = 0;
+			int len = 0;
 			cur[len++] = order[i];
 			for (int j = i + 1; j < n; j++) {
 				const Blob &first = blobs[cur[0]], &last = blobs[cur[len - 1]], &b = blobs[order[j]];

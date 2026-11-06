@@ -24,6 +24,7 @@
 
 #include "common/events.h"
 #include "common/config-manager.h"
+#include "base/neargrog_build.h" // Near-Grog: NEARGROG_STANDALONE
 #include "backends/platform/ios7/ios7_video.h"
 #include "backends/platform/ios7/ios7_touch_controller.h"
 #include "backends/platform/ios7/ios7_mouse_controller.h"
@@ -704,9 +705,12 @@ bool iOS7_fetchEvent(InternalEvent *event) {
 }
 
 - (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
-	// Near-Grog: the touch map (a ring where each finger lands)
+	// Near-Grog: the touch map (a ring where each finger lands), for working
+	// out taps - not in the standalone apps
+#ifndef NEARGROG_STANDALONE
 	for (UITouch *t in touches)
 		iOS7_showTouchDot([t locationInView:self]);
+#endif
 #if TARGET_OS_IOS
 	UITouch *touch = [touches anyObject];
 	touchesBegan = [touch locationInView:self];
