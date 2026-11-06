@@ -94,6 +94,7 @@ private:
 	Common::Rect _wagonKey;            // the canvas the S was placed on
 	Common::Array<Common::Point> _wagonS; // its pixels (320 x 200)
 	Common::Array<Common::Point> _wagonWhite; // the canvas whitened behind it
+	int _wagonDx = 0, _wagonDy = 0;    // nudged half a game pixel, to centre it
 	void quickSave();
 	void quickLoad();
 

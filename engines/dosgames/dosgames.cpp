@@ -723,6 +723,38 @@ void DosGamesEngine::drawWagonS(byte *scr) {
 					}
 				if (best == 1 << 30)
 					continue;
+				// the gaps left uneven by a whole pixel: half of one makes them
+				// even (the screen is doubled - half a game pixel is one of its)
+				{
+					int diff = 0, rowsUsed = 0;
+					for (int y = 0; y < h; y++) {
+						int l = w, r = -1;
+						for (uint i = 0; i < shape.size(); i++)
+							if (shape[i].y == y) {
+								l = MIN<int>(l, shape[i].x);
+								r = MAX<int>(r, shape[i].x);
+							}
+						if (r < 0)
+							continue;
+						int L = bx + l, Rr = bx + r;
+						while (canvas(L - 1, by + y))
+							L--;
+						while (canvas(Rr + 1, by + y))
+							Rr++;
+						diff += (bx + l - L) - (Rr - bx - r);
+						rowsUsed++;
+					}
+					const int mx = bx + w / 2;
+					int T = by, B = by + h - 1;
+					while (canvas(mx, T - 1))
+						T--;
+					while (canvas(mx, B + 1))
+						B++;
+					// (the left gap smaller: half a pixel right; and so on)
+					_wagonDx = rowsUsed && 2 * diff <= -rowsUsed ? 1 : rowsUsed && 2 * diff >= rowsUsed ? -1 : 0;
+					const int vdiff = (by - T) - (B - (by + h - 1));
+					_wagonDy = vdiff <= -1 ? 1 : vdiff >= 1 ? -1 : 0;
+				}
 				// the canvas behind it whitened (a painted letter, plain over
 				// the shading), then the letter
 				for (int y = by - 1; y <= by + h; y++)
@@ -738,8 +770,11 @@ void DosGamesEngine::drawWagonS(byte *scr) {
 				byte *q = at(c.x, c.y);
 				q[0] = q[1] = q[pitch] = q[pitch + 1] = white;
 			}
+		const int nudge = _wagonDy * pitch + _wagonDx; // (half a game pixel)
 		for (const Common::Point &c : _wagonS) {
-			byte *p = at(c.x, c.y);
+			if ((c.x == 0 && _wagonDx < 0) || (c.y == 0 && _wagonDy < 0) || (c.x == kW - 1 && _wagonDx > 0) || (c.y == kH - 1 && _wagonDy > 0))
+				continue; // (the screen's edge)
+			byte *p = at(c.x, c.y) + nudge;
 			p[0] = p[1] = p[pitch] = p[pitch + 1] = black;
 		}
 		return;
