@@ -748,6 +748,11 @@ void XcodeProvider::setupFrameworksBuildPhase(const BuildSetup &setup) {
 		}
 		if (CONTAINS_DEFINE(setup.defines, "USE_FREETYPE2")) {
 			frameworks_iOS.push_back(getLibString("freetype", setup.useXCFramework));
+			// Near-Grog: the prebuilt FreeType reads bzip2 fonts, so it needs
+			// libbz2 - which otherwise only comes with FluidSynth (a build of
+			// few engines, The Oregon Trail's, has none)
+			if (setup.useXCFramework && !(CONTAINS_DEFINE(setup.defines, "USE_FLUIDSYNTH") && !CONTAINS_DEFINE(setup.defines, "USE_FLUIDLITE")))
+				frameworks_iOS.push_back(getLibString("bz2", setup.useXCFramework));
 		}
 		if (CONTAINS_DEFINE(setup.defines, "USE_JPEG")) {
 			frameworks_iOS.push_back(getLibString("jpeg", setup.useXCFramework));
