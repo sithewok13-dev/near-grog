@@ -547,10 +547,12 @@ void DosGamesEngine::drawEdition(byte *scr) {
 }
 
 // The standalone's S on the covered wagon's canvas, wherever the game draws
-// it (on the trail, over the party's names): the canvas is three or more
-// white panels side by side between grey hoops, the first (the front, with
-// its opening) left out; the S, in the game's own letter, at the middle of
-// the rest, only on the canvas
+// it (on the trail, over the party's names), in the game's own letter and
+// between the seams: the canvas is three or more panels side by side - split
+// by black seams with the grey as shading (the big wagon), or by grey seams
+// (the small one) - the first, the front with its opening, left out. The S
+// goes in one panel, all of it on that panel, as large and as near its
+// middle as it fits.
 void DosGamesEngine::drawWagonS(byte *scr) {
 	if (ConfMan.get("neargrog_edition").empty())
 		return;
@@ -566,91 +568,125 @@ void DosGamesEngine::drawWagonS(byte *scr) {
 	const int pitch = _screen.pitch;
 	const byte *pal = _pc->palette();
 	auto at = [&](int x, int y) { return scr + 2 * y * pitch + 2 * x; };
-	bool white[256];
+	byte kind[256]; // 2 white, 1 light grey, 0 anything else
 	int black = -1;
 	for (int i = 0; i < 256; i++) {
-		white[i] = pal[i * 3] >= 250 && pal[i * 3 + 1] >= 250 && pal[i * 3 + 2] >= 250;
-		if (black < 0 && pal[i * 3] < 8 && pal[i * 3 + 1] < 8 && pal[i * 3 + 2] < 8)
+		const byte r = pal[i * 3], g = pal[i * 3 + 1], b = pal[i * 3 + 2];
+		kind[i] = r >= 250 && g >= 250 && b >= 250 ? 2 : (r >= 140 && ABS(r - g) < 12 && ABS(r - b) < 12) ? 1 : 0;
+		if (black < 0 && r < 8 && g < 8 && b < 8)
 			black = i;
 	}
 	if (black < 0)
 		return;
-	// the white areas (the canvas's panels among them)
-	static byte seen[kW * kH];
-	memset(seen, 0, sizeof(seen));
+	static int16 label[kW * kH];
 	static int16 stack[kW * kH * 2];
-	struct Blob { int n, x0, y0, x1, y1; } blobs[kMaxBlobs];
-	int count = 0;
-	for (int y = 0; y < kH; y++)
-		for (int x = 0; x < kW; x++) {
-			if (seen[y * kW + x] || !white[*at(x, y)])
-				continue;
-			Blob b = { 0, x, y, x, y };
-			int sp = 0;
-			stack[sp++] = x;
-			stack[sp++] = y;
-			seen[y * kW + x] = 1;
-			while (sp) {
-				const int cy = stack[--sp], cx = stack[--sp];
-				b.n++;
-				b.x0 = MIN(b.x0, cx); b.x1 = MAX(b.x1, cx);
-				b.y0 = MIN(b.y0, cy); b.y1 = MAX(b.y1, cy);
-				static const int kDx[4] = { 1, -1, 0, 0 }, kDy[4] = { 0, 0, 1, -1 };
-				for (int d = 0; d < 4; d++) {
-					const int nx = cx + kDx[d], ny = cy + kDy[d];
-					if (nx < 0 || ny < 0 || nx >= kW || ny >= kH || seen[ny * kW + nx] || !white[*at(nx, ny)])
-						continue;
-					seen[ny * kW + nx] = 1;
-					stack[sp++] = nx;
-					stack[sp++] = ny;
+	struct Blob { int n, x0, y0, x1, y1; int64 sx, sy; } blobs[kMaxBlobs];
+	for (int pass = 0; pass < 2; pass++) {
+		const int minKind = pass == 0 ? 1 : 2; // white and grey, then white only
+		memset(label, 0, sizeof(label));
+		int count = 0;
+		for (int y = 0; y < kH; y++)
+			for (int x = 0; x < kW; x++) {
+				if (label[y * kW + x] || kind[*at(x, y)] < minKind)
+					continue;
+				Blob bl = { 0, x, y, x, y, 0, 0 };
+				const int id = count < kMaxBlobs ? count + 1 : -1;
+				int sp = 0;
+				stack[sp++] = x;
+				stack[sp++] = y;
+				label[y * kW + x] = id;
+				while (sp) {
+					const int cy = stack[--sp], cx = stack[--sp];
+					bl.n++;
+					bl.sx += cx;
+					bl.sy += cy;
+					bl.x0 = MIN(bl.x0, cx); bl.x1 = MAX(bl.x1, cx);
+					bl.y0 = MIN(bl.y0, cy); bl.y1 = MAX(bl.y1, cy);
+					static const int kDx[4] = { 1, -1, 0, 0 }, kDy[4] = { 0, 0, 1, -1 };
+					for (int d = 0; d < 4; d++) {
+						const int nx = cx + kDx[d], ny = cy + kDy[d];
+						if (nx < 0 || ny < 0 || nx >= kW || ny >= kH || label[ny * kW + nx] || kind[*at(nx, ny)] < minKind)
+							continue;
+						label[ny * kW + nx] = id;
+						stack[sp++] = nx;
+						stack[sp++] = ny;
+					}
+				}
+				if (id > 0) {
+					blobs[count++] = bl;
+					if (bl.n < 60 || bl.n >= 1500)
+						blobs[count - 1].n = 0; // (too small or large to be a panel)
 				}
 			}
-			if (b.n >= 60 && b.n < 1500 && count < kMaxBlobs)
-				blobs[count++] = b;
-		}
-	// panels side by side (sorted by their left edge), tops level
-	Common::sort(blobs, blobs + count, [](const Blob &a, const Blob &b) { return a.x0 < b.x0; });
-	int best = -1, bestLen = 0;
-	for (int i = 0; i < count; i++) {
-		int len = 1, last = i;
-		for (int j = i + 1; j < count; j++)
-			if (ABS(blobs[j].y0 - blobs[i].y0) <= 4 && blobs[j].x0 - blobs[last].x1 <= 4 && blobs[j].x0 >= blobs[last].x0) {
-				len++;
-				last = j;
+		// panels side by side (by their left edges), tops level
+		int order[kMaxBlobs], n = 0;
+		for (int i = 0; i < count; i++)
+			if (blobs[i].n)
+				order[n++] = i;
+		Common::sort(order, order + n, [&](int a, int b) { return blobs[a].x0 < blobs[b].x0; });
+		int run[kMaxBlobs], runLen = 0;
+		for (int i = 0; i < n; i++) {
+			int cur[kMaxBlobs], len = 0;
+			cur[len++] = order[i];
+			for (int j = i + 1; j < n; j++) {
+				const Blob &first = blobs[cur[0]], &last = blobs[cur[len - 1]], &b = blobs[order[j]];
+				if (ABS(b.y0 - first.y0) <= 4 && b.x0 - last.x1 <= 4 && b.x0 >= last.x0)
+					cur[len++] = order[j];
 			}
-		if (len >= 3 && len > bestLen) {
-			best = i;
-			bestLen = len;
+			if (len >= 3 && len > runLen) {
+				memcpy(run, cur, len * sizeof(int));
+				runLen = len;
+			}
 		}
+		if (!runLen)
+			continue;
+		// the canvas as found: the same as last time, the same place
+		const Common::Rect key(blobs[run[0]].x0, blobs[run[0]].y0, blobs[run[runLen - 1]].x1, blobs[run[runLen - 1]].y1 + pass * 1000);
+		if (key != _wagonKey) {
+			_wagonKey = key;
+			_wagonS.clear();
+			for (int sc = 2; sc >= 1 && _wagonS.empty(); sc--) {
+				int bestD = 1 << 30;
+				for (int k = 1; k < runLen; k++) {
+					const Blob &p = blobs[run[k]];
+					const int id = run[k] + 1;
+					const int mx = (int)(p.sx / p.n), my = (int)(p.sy / p.n);
+					for (int cy = p.y0; cy <= p.y1; cy++)
+						for (int cx = p.x0; cx <= p.x1; cx++) {
+							const int d = ABS(cx + 4 * sc - mx) + ABS(cy + 4 * sc - my) - p.n / 100;
+							if (d >= bestD)
+								continue;
+							bool fits = true;
+							for (int r = 0; r < 8 && fits; r++)
+								for (int b = 0; b < 8 && fits; b++)
+									if (glyph[r] & (0x80 >> b))
+										for (int dy = 0; dy < sc && fits; dy++)
+											for (int dx = 0; dx < sc && fits; dx++) {
+												const int x = cx + b * sc + dx, y = cy + r * sc + dy;
+												fits = x < kW && y < kH && label[y * kW + x] == id;
+											}
+							if (!fits)
+								continue;
+							bestD = d;
+							_wagonS.clear();
+							for (int r = 0; r < 8; r++)
+								for (int b = 0; b < 8; b++)
+									if (glyph[r] & (0x80 >> b))
+										for (int dy = 0; dy < sc; dy++)
+											for (int dx = 0; dx < sc; dx++)
+												_wagonS.push_back(Common::Point(cx + b * sc + dx, cy + r * sc + dy));
+						}
+				}
+			}
+		}
+		for (const Common::Point &c : _wagonS) {
+			byte *p = at(c.x, c.y);
+			p[0] = p[1] = p[pitch] = p[pitch + 1] = black;
+		}
+		return;
 	}
-	if (best < 0)
-		return;
-	// the panels after the front
-	int x0 = kW, y0 = kH, x1 = 0, y1 = 0, last = best, k = 1;
-	for (int j = best + 1; j < count && k < bestLen; j++)
-		if (ABS(blobs[j].y0 - blobs[best].y0) <= 4 && blobs[j].x0 - blobs[last].x1 <= 4 && blobs[j].x0 >= blobs[last].x0) {
-			x0 = MIN(x0, blobs[j].x0); x1 = MAX(x1, blobs[j].x1);
-			y0 = MIN(y0, blobs[j].y0); y1 = MAX(y1, blobs[j].y1);
-			last = j;
-			k++;
-		}
-	if (x1 <= x0)
-		return;
-	const int sc = y1 - y0 >= 30 ? 2 : 1;
-	const int cx = (x0 + x1) / 2 - 4 * sc, cy = (y0 + y1) / 2 - 4 * sc;
-	for (int r = 0; r < 8; r++)
-		for (int b = 0; b < 8; b++) {
-			if (!(glyph[r] & (0x80 >> b)))
-				continue;
-			for (int dy = 0; dy < sc; dy++)
-				for (int dx = 0; dx < sc; dx++) {
-					const int x = cx + b * sc + dx, y = cy + r * sc + dy;
-					if (x < 0 || y < 0 || x >= kW || y >= kH || *at(x, y) == black)
-						continue;
-					byte *p = at(x, y);
-					p[0] = p[1] = p[pitch] = p[pitch + 1] = black;
-				}
-		}
+	_wagonKey = Common::Rect();
+	_wagonS.clear();
 }
 
 void DosGamesEngine::presentPad() {

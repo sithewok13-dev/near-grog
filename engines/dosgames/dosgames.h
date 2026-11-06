@@ -91,6 +91,8 @@ private:
 	void drawEdition(byte *scr);
 	void drawWagonS(byte *scr);
 	Common::Array<byte> _shown;
+	Common::Rect _wagonKey;            // the canvas the S was placed on
+	Common::Array<Common::Point> _wagonS; // its pixels (320 x 200)
 	void quickSave();
 	void quickLoad();
 
