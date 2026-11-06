@@ -75,6 +75,10 @@ private:
 	Graphics::PixelFormat _format;
 	void applyLayout();
 	bool oregonHunting() const;
+	bool oregonNamesScreen() const;
+	int _namesFrames;   // the names screen seen (or not) this many checks running
+	bool _namesKeyboard; // the keyboard opened for it
+	uint32 _padTicks;
 	void runPad();
 	void presentPad();
 	void quickSave();

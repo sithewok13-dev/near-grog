@@ -37,7 +37,7 @@
 namespace DosGames {
 
 DosGamesEngine::DosGamesEngine(OSystem *syst, const DosGameDescription *desc) :
-		Engine(syst), _desc(desc), _pc(nullptr), _opl(nullptr), _files(nullptr), _pad(nullptr), _keyboardUp(false) {
+		Engine(syst), _desc(desc), _pc(nullptr), _opl(nullptr), _files(nullptr), _pad(nullptr), _keyboardUp(false), _namesFrames(0), _namesKeyboard(false), _padTicks(0) {
 }
 
 DosGamesEngine::~DosGamesEngine() {
@@ -370,11 +370,46 @@ bool DosGamesEngine::oregonHunting() const {
 	return flag < 0xA0000 && m[flag] == 1;
 }
 
+// The party's names are asked under the picture of the wagon and family:
+// points of it, as the game draws it
+bool DosGamesEngine::oregonNamesScreen() const {
+	static const struct { int16 x, y; byte r, g, b; } kPoints[] = {
+		{ 282, 66, 255, 255, 255 }, { 300, 28, 255, 255, 255 }, { 228, 126, 255, 255, 255 },
+		{ 318, 56, 154, 154, 154 }, { 508, 202, 219, 239, 255 }, { 50, 184, 170, 170, 170 },
+		{ 516, 192, 219, 239, 255 }, { 534, 160, 0, 109, 182 }, { 280, 110, 255, 235, 223 },
+		{ 292, 42, 154, 154, 154 }, { 574, 198, 255, 219, 219 }, { 240, 14, 154, 154, 154 }
+	};
+	const byte *pal = _pc->palette();
+	const byte *scr = (const byte *)_screen.getPixels();
+	for (const auto &p : kPoints) {
+		const byte *c = pal + scr[p.y * _screen.pitch + p.x] * 3;
+		if (ABS(c[0] - p.r) > 8 || ABS(c[1] - p.g) > 8 || ABS(c[2] - p.b) > 8)
+			return false;
+	}
+	return true;
+}
+
 void DosGamesEngine::runPad() {
 	switch (_pad->tick()) {
 	case TouchPad::kQuickSave: quickSave(); break;
 	case TouchPad::kQuickLoad: quickLoad(); break;
 	default: break;
+	}
+	// The names: the keyboard comes up for them, and goes once they're
+	// settled (the picture gone: "Are these names correct?" answered Yes)
+	if (++_padTicks % 5 == 0 && g_system->hasFeature(OSystem::kFeatureVirtualKeyboard)) {
+		const bool names = oregonNamesScreen();
+		if (names != _namesKeyboard) {
+			if (++_namesFrames >= 4) { // (steady a moment: not a screen being drawn)
+				_namesFrames = 0;
+				_namesKeyboard = names;
+				if (names || _keyboardUp)
+					g_system->setFeatureState(OSystem::kFeatureVirtualKeyboard, names);
+				_keyboardUp = names;
+			}
+		} else {
+			_namesFrames = 0;
+		}
 	}
 	const bool hunting = oregonHunting();
 	_pad->setHunting(hunting);
