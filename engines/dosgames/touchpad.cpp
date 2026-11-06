@@ -43,7 +43,7 @@ enum {
 } // End of anonymous namespace
 
 TouchPad::TouchPad() : _w(0), _h(0), _portrait(false), _hunting(false), _gameDirty(true), _padDirty(true), _allDirty(true),
-		_pressed(-1), _pressTime(0), _holdFired(false), _keyHeld(false), _heldFrames(0), _frame(0), _downFrame(0), _lastEmit(0),
+		_pressed(-1), _pressTime(0), _holdFired(false), _keyHeld(false), _heldFrames(0), _frame(0), _downFrame(0), _lastEmit(0), _typed(0), _heldScan(0),
 		_hunterSeen(false), _movedFrame(0), _walkWait(0), _wantWalk(false), _wantDir(-1), _sentDir(-1),
 		_stickR(0), _stickDown(false), _stickMoved(false), _stickTime(0), _fieldDown(false), _fieldWalk(false), _fieldTime(0) {
 	for (int i = 0; i < 256; i++)
@@ -310,6 +310,13 @@ void TouchPad::keyDown(const Button &b) {
 	Key k;
 	k.scan = b.scan;
 	k.ascii = b.ascii;
+	if (b.label == "Continue" && _typed > 0) {
+		// after typing an answer, Continue gives it (Enter); else the space bar
+		k.scan = kScanEnter;
+		k.ascii = 13;
+	}
+	noteKey(k.ascii);
+	_heldScan = k.scan;
 	k.down = true;
 	k.at = _frame;
 	_keys.push_back(k);
@@ -319,7 +326,7 @@ void TouchPad::keyDown(const Button &b) {
 
 void TouchPad::keyUp(const Button &b) {
 	Key k;
-	k.scan = b.scan;
+	k.scan = _heldScan;
 	k.ascii = 0;
 	k.down = false;
 	k.at = MAX(_frame, _downFrame + 3); // (held long enough to count)
@@ -335,6 +342,15 @@ void TouchPad::releaseKey() {
 }
 
 // One a frame, a key held at least three before it's let go
+void TouchPad::noteKey(uint8 ascii) {
+	if (ascii == 13 || ascii == ' ' || ascii == 27)
+		_typed = 0;
+	else if (ascii == 8)
+		_typed = MAX(0, _typed - 1);
+	else if (ascii > ' ' && ascii < 127)
+		_typed++;
+}
+
 bool TouchPad::takeKey(Key &k) {
 	if (_keys.empty() || _keys[0].at > _frame || _lastEmit == _frame || (!_keys[0].down && _frame < _lastEmit + 3))
 		return false;

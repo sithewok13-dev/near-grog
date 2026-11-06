@@ -215,6 +215,8 @@ bool DosGamesEngine::handleEvents() {
 			uint8 scan = scanCode(event.kbd);
 			if (scan || ascii)
 				_pc->keyDown(scan, ascii);
+			if (_pad)
+				_pad->noteKey(ascii);
 			break;
 		}
 		case Common::EVENT_KEYUP: {

@@ -79,6 +79,8 @@ public:
 	Action tick();
 	/** The keys the touches pressed and let go, oldest first. */
 	bool takeKey(Key &k);
+	/** A key typed some other way (a keyboard): what Continue gives next. */
+	void noteKey(uint8 ascii);
 
 	/** The game's screen on the phone, for tests. */
 	const Common::Rect &gameBox() const { return _gameBox; }
@@ -132,6 +134,8 @@ private:
 	void tapKey(uint8 scan, uint8 ascii);
 	void pushKey(uint8 scan, uint8 ascii, bool down);
 	uint32 _lastEmit;
+	int _typed;       // keys typed since the last Enter or space
+	uint8 _heldScan;
 
 	// Tap and Stick: the hunter steered (8 ways), walking while wanted
 	Common::Point _hunter;
