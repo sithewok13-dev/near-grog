@@ -645,38 +645,70 @@ void DosGamesEngine::drawWagonS(byte *scr) {
 		if (key != _wagonKey) {
 			_wagonKey = key;
 			_wagonS.clear();
+			// centred between the seams: as even a gap at each side of each
+			// of its rows, and above and below it, as the panel allows
+			int inkL = 7, inkR = 0;
+			for (int r = 0; r < 8; r++)
+				for (int b = 0; b < 8; b++)
+					if (glyph[r] & (0x80 >> b)) {
+						inkL = MIN(inkL, b);
+						inkR = MAX(inkR, b);
+					}
+			const Blob &p = blobs[run[1]]; // (the second panel: the first behind the front)
+			const int id = run[1] + 1;
+			auto canvas = [&](int x, int y) { return x >= 0 && y >= 0 && x < kW && y < kH && label[y * kW + x] == id; };
 			for (int sc = 2; sc >= 1 && _wagonS.empty(); sc--) {
-				int bestD = 1 << 30;
-				for (int k = 1; k < 2; k++) { // (the second panel: the first behind the front)
-					const Blob &p = blobs[run[k]];
-					const int id = run[k] + 1;
-					const int mx = (int)(p.sx / p.n), my = (int)(p.sy / p.n);
-					for (int cy = p.y0; cy <= p.y1; cy++)
-						for (int cx = p.x0; cx <= p.x1; cx++) {
-							const int d = ABS(cx + 4 * sc - mx) + ABS(cy + 4 * sc - my);
-							if (d >= bestD)
+				int best = 1 << 30;
+				for (int cy = p.y0; cy <= p.y1; cy++)
+					for (int cx = p.x0; cx <= p.x1; cx++) {
+						bool fits = true;
+						for (int r = 0; r < 8 && fits; r++)
+							for (int b = 0; b < 8 && fits; b++)
+								if (glyph[r] & (0x80 >> b))
+									for (int dy = 0; dy < sc && fits; dy++)
+										for (int dx = 0; dx < sc && fits; dx++)
+											fits = canvas(cx + b * sc + dx, cy + r * sc + dy);
+						if (!fits)
+							continue;
+						int score = 0, used = 0;
+						for (int r = 0; r < 8; r++) {
+							if (!glyph[r])
 								continue;
-							bool fits = true;
-							for (int r = 0; r < 8 && fits; r++)
-								for (int b = 0; b < 8 && fits; b++)
-									if (glyph[r] & (0x80 >> b))
-										for (int dy = 0; dy < sc && fits; dy++)
-											for (int dx = 0; dx < sc && fits; dx++) {
-												const int x = cx + b * sc + dx, y = cy + r * sc + dy;
-												fits = x < kW && y < kH && label[y * kW + x] == id;
-											}
-							if (!fits)
-								continue;
-							bestD = d;
-							_wagonS.clear();
-							for (int r = 0; r < 8; r++)
-								for (int b = 0; b < 8; b++)
-									if (glyph[r] & (0x80 >> b))
-										for (int dy = 0; dy < sc; dy++)
-											for (int dx = 0; dx < sc; dx++)
-												_wagonS.push_back(Common::Point(cx + b * sc + dx, cy + r * sc + dy));
+							int l = 7, rr = 0;
+							for (int b = 0; b < 8; b++)
+								if (glyph[r] & (0x80 >> b)) {
+									l = MIN(l, b);
+									rr = MAX(rr, b);
+								}
+							for (int dy = 0; dy < sc; dy++) {
+								const int y = cy + r * sc + dy, xl = cx + l * sc, xr = cx + rr * sc + sc - 1;
+								int L = xl, R = xr;
+								while (canvas(L - 1, y))
+									L--;
+								while (canvas(R + 1, y))
+									R++;
+								score += ABS((xl - L) - (R - xr));
+								used++;
+							}
 						}
-				}
+						const int mx = cx + (inkL + inkR) * sc / 2, top = cy, bottom = cy + 8 * sc - 1;
+						int T = top, B = bottom;
+						while (canvas(mx, T - 1))
+							T--;
+						while (canvas(mx, B + 1))
+							B++;
+						score += ABS((top - T) - (B - bottom)) * used / 2;
+						if (score >= best)
+							continue;
+						best = score;
+						_wagonS.clear();
+						for (int r = 0; r < 8; r++)
+							for (int b = 0; b < 8; b++)
+								if (glyph[r] & (0x80 >> b))
+									for (int dy = 0; dy < sc; dy++)
+										for (int dx = 0; dx < sc; dx++)
+											_wagonS.push_back(Common::Point(cx + b * sc + dx, cy + r * sc + dy));
+					}
 			}
 		}
 		for (const Common::Point &c : _wagonS) {
