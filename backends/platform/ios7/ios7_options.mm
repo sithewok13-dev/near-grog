@@ -600,6 +600,11 @@ void OSystem_iOS7::applyTouchSettings(bool _3dMode, bool overlayShown) {
 	 _currentTouchMode = defaultMode == "direct" ? kTouchModeDirect : kTouchModeTouchpad;
 	}
 
+	// Near-Grog: a layout that takes touches as they are (The Oregon Trail's
+	// keys) keeps direct touch, no pointer, whatever the setting
+	if (!overlayShown && ConfMan.hasKey("neargrog_lock_direct") && ConfMan.getBool("neargrog_lock_direct"))
+		_currentTouchMode = kTouchModeDirect;
+
 	updateTouchMode();
 #else
 	(void)_3dMode;

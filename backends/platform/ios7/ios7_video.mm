@@ -464,8 +464,12 @@ bool iOS7_fetchEvent(InternalEvent *event) {
 
     [_toggleTouchModeButton setImage: btnImage forState:UIControlStateNormal];
 
-	// Near-Grog: the Grim games' overlay has its own MENU in that corner
+	// Near-Grog: the Grim games' overlay has its own MENU in that corner, and
+	// a game can ask for ScummVM's buttons to be hidden (its own Menu opens
+	// ScummVM's menu)
 	if (_nearGrogOverlayShown)
+		isEnabled = false;
+	if ([self isInGame] && ConfMan.hasKey("neargrog_hide_buttons") && ConfMan.getBool("neargrog_hide_buttons"))
 		isEnabled = false;
 
 	[_toggleTouchModeButton setEnabled:isEnabled];

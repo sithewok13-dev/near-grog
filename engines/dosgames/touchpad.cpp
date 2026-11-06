@@ -32,7 +32,10 @@ namespace DosGames {
 namespace {
 
 const int kGap = 10;
-const uint32 kHoldMillis = 300; // (Save / Load held: the quick one)
+// Held this long (the ring filling): Save / Load the quick one, Menu the tray
+uint32 holdMillis(int action) {
+	return action == TouchPad::kTray ? 500 : 300;
+}
 const uint32 kFlashMillis = 150; // (a touched button shows blue at least this long)
 
 // PC scan codes
@@ -463,7 +466,7 @@ TouchPad::Action TouchPad::press(Common::Point p) {
 	_flash = i;
 	_flashUntil = g_system->getMillis() + kFlashMillis;
 	_padDirty = true;
-	if (_buttons[i].action == kTray || _buttons[i].action == kKeyboard)
+	if (_buttons[i].action == kKeyboard)
 		return (Action)_buttons[i].action; // (at once: nothing to hold)
 	_pressed = i;
 	_pressTime = g_system->getMillis();
@@ -513,7 +516,8 @@ TouchPad::Action TouchPad::release(Common::Point p) {
 	_pressed = -1;
 	if (_holdFired)
 		return kNone;
-	return (Action)b.action; // (Save / Load: a tap, the dialog)
+	// a tap: Save / Load the dialogs, Menu ScummVM's menu
+	return b.action == kTray ? kGameMenu : (Action)b.action;
 }
 
 TouchPad::Action TouchPad::tick() {
@@ -536,11 +540,11 @@ TouchPad::Action TouchPad::tick() {
 		k.at = _frame;
 		_keys.push_back(k);
 	}
-	if ((b.action == kSaveDialog || b.action == kLoadDialog) && !_holdFired) {
+	if ((b.action == kSaveDialog || b.action == kLoadDialog || b.action == kTray) && !_holdFired) {
 		_padDirty = true; // (the ring goes round)
-		if (g_system->getMillis() - _pressTime >= kHoldMillis) {
+		if (g_system->getMillis() - _pressTime >= holdMillis(b.action)) {
 			_holdFired = true;
-			return b.action == kSaveDialog ? kQuickSave : kQuickLoad;
+			return b.action == kSaveDialog ? kQuickSave : b.action == kLoadDialog ? kQuickLoad : kTray;
 		}
 	}
 	return kNone;
@@ -734,8 +738,8 @@ void TouchPad::drawPad() {
 			if (f)
 				f->drawString(&_out, b.label, b.box.left, cy - f->getFontHeight() / 2, b.box.width(), rgb(255, 255, 255), Graphics::kTextAlignCenter);
 		}
-		if (down && !_holdFired && (b.action == kSaveDialog || b.action == kLoadDialog))
-			drawHoldRing(b.box, radius, MIN(1.0f, (g_system->getMillis() - _pressTime) / (float)kHoldMillis));
+		if ((int)i == _pressed && !_holdFired && (b.action == kSaveDialog || b.action == kLoadDialog || b.action == kTray))
+			drawHoldRing(b.box, radius, MIN(1.0f, (g_system->getMillis() - _pressTime) / (float)holdMillis(b.action)));
 	}
 	if (_hunting && _stickR > 0)
 		drawStick();

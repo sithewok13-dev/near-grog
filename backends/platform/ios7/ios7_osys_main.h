@@ -98,7 +98,7 @@ public:
 	bool getFeatureState(Feature f) override;
 
 	TouchMode getCurrentTouchMode() const { return _currentTouchMode; };
-	void setCurrentTouchMode(TouchMode mode) { _currentTouchMode = mode; };
+	void setCurrentTouchMode(TouchMode mode) { _currentTouchMode = mode; updateTouchMode(); } // (Near-Grog: and the buttons shown again as they should be)
 
 #if TARGET_OS_IOS
 	void applyOrientationSettings();
@@ -196,6 +196,7 @@ protected:
 	// Near-Grog: its layouts take touches as they are (down, move, up) in
 	// direct mode, not as taps and long presses
 	bool nearGrogRawTouch() const;
+	bool nearGrogLockDirect() const;
 
 	void handleEvent_mouseLeftButtonDown(Common::Event &event, int x, int y);
 	void handleEvent_mouseLeftButtonUp(Common::Event &event, int x, int y);

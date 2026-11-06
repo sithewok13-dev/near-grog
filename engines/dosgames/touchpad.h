@@ -43,7 +43,7 @@ namespace DosGames {
  */
 class TouchPad {
 public:
-	enum Action { kNone, kSaveDialog, kLoadDialog, kQuickSave, kQuickLoad, kTray, kKeyboard };
+	enum Action { kNone, kSaveDialog, kLoadDialog, kQuickSave, kQuickLoad, kTray, kKeyboard, kGameMenu };
 	enum Aim { kAimTap, kAimStick, kAimTurn, kAimPoint };
 
 	/** A key for the PC: down or up. */

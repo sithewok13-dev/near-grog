@@ -36,6 +36,12 @@
 
 namespace DosGames {
 
+// Near-Grog: ScummVM's own buttons (touch mode, menu) in the corner, for The
+// Oregon Trail's keys: off unless the tray asks for them
+static bool scummvmButtons() {
+	return ConfMan.hasKey("neargrog_scummvm_buttons") && ConfMan.getBool("neargrog_scummvm_buttons");
+}
+
 DosGamesEngine::DosGamesEngine(OSystem *syst, const DosGameDescription *desc) :
 		Engine(syst), _desc(desc), _pc(nullptr), _opl(nullptr), _files(nullptr), _pad(nullptr), _keyboardUp(false), _namesFrames(0), _namesKeyboard(false), _padTicks(0) {
 }
@@ -45,8 +51,11 @@ DosGamesEngine::~DosGamesEngine() {
 		_opl->stop();
 		delete _opl;
 	}
-	if (_pad)
+	if (_pad) {
 		NearGrog::wholeScreen(false);
+		ConfMan.removeKey("neargrog_lock_direct", Common::ConfigManager::kTransientDomain);
+		ConfMan.removeKey("neargrog_hide_buttons", Common::ConfigManager::kTransientDomain);
+	}
 	delete _pad;
 	delete _pc;
 	delete _files;
@@ -197,7 +206,7 @@ bool DosGamesEngine::handleEvents() {
 			switch (a) {
 			case TouchPad::kSaveDialog: saveGameDialog(); break;
 			case TouchPad::kLoadDialog: loadGameDialog(); break;
-			case TouchPad::kTray: openMainMenuDialog(); break;
+			case TouchPad::kGameMenu: Engine::openMainMenuDialog(); break; // (a tap: ScummVM's)
 			case TouchPad::kKeyboard:
 				// opened, or (pressed again while it's up) closed
 				if (g_system->hasFeature(OSystem::kFeatureVirtualKeyboard)) {
@@ -272,6 +281,10 @@ Common::Error DosGamesEngine::run() {
 	if (_desc->gameId == kGameOregonTrail) {
 		// Near-Grog: the touch keys (touches as they are: a hold holds)
 		ConfMan.setBool("neargrog_raw_touch", true, Common::ConfigManager::kTransientDomain);
+		// direct touch only (no pointer), and ScummVM's corner buttons hidden
+		// unless the tray says otherwise (the Menu key opens ScummVM's menu)
+		ConfMan.setBool("neargrog_lock_direct", true, Common::ConfigManager::kTransientDomain);
+		ConfMan.setBool("neargrog_hide_buttons", !scummvmButtons(), Common::ConfigManager::kTransientDomain);
 		_pad = new TouchPad();
 		applyLayout();
 	} else {
@@ -393,6 +406,7 @@ void DosGamesEngine::runPad() {
 	switch (_pad->tick()) {
 	case TouchPad::kQuickSave: quickSave(); break;
 	case TouchPad::kQuickLoad: quickLoad(); break;
+	case TouchPad::kTray: openMainMenuDialog(); break; // (Menu held)
 	default: break;
 	}
 	// The names: the keyboard comes up for them, and goes once they're
@@ -466,7 +480,7 @@ void DosGamesEngine::quickLoad() {
 }
 
 namespace {
-enum { kCmdAim = 'aim ', kCmdScummVM = 'smvm', kCmdResume = 'resm' };
+enum { kCmdAim = 'aim ', kCmdButtons = 'btns', kCmdScummVM = 'smvm', kCmdResume = 'resm' };
 }
 
 // Menu: Near-Grog's tray - how the rifle is pointed while hunting
@@ -483,6 +497,8 @@ void DosGamesEngine::openMainMenuDialog() {
 			Common::Array<uint32> cmds;
 			labels.push_back(Common::String::format("Hunting aim: %s", TouchPad::aimName(TouchPad::configAim())));
 			cmds.push_back(kCmdAim);
+			labels.push_back(Common::String::format("ScummVM buttons: %s", scummvmButtons() ? "On" : "Off"));
+			cmds.push_back(kCmdButtons);
 			labels.push_back("ScummVM menu");
 			cmds.push_back(kCmdScummVM);
 			labels.push_back("Resume");
@@ -496,6 +512,12 @@ void DosGamesEngine::openMainMenuDialog() {
 			_pad->refresh();
 			presentPad();
 			continue;
+		}
+		if (cmd == (uint32)kCmdButtons) {
+			ConfMan.setBool("neargrog_scummvm_buttons", !scummvmButtons());
+			ConfMan.setBool("neargrog_hide_buttons", !scummvmButtons(), Common::ConfigManager::kTransientDomain);
+			ConfMan.flushToDisk();
+			continue; // (shown or hidden as the tray closes)
 		}
 		if (cmd == (uint32)kCmdScummVM)
 			Engine::openMainMenuDialog();

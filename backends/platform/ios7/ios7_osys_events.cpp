@@ -293,7 +293,15 @@ void  OSystem_iOS7::handleEvent_orientationChanged(int orientation) {
 	}
 }
 
+// Near-Grog: set by an engine whose layout must have direct touch
+bool OSystem_iOS7::nearGrogLockDirect() const {
+	return ConfMan.hasKey("neargrog_lock_direct") && ConfMan.getBool("neargrog_lock_direct") &&
+		!dynamic_cast<iOSGraphicsManager *>(_graphicsManager)->isOverlayVisible();
+}
+
 void OSystem_iOS7::handleEvent_touchModeChanged() {
+	if (nearGrogLockDirect())
+		return;
 	switch (_currentTouchMode) {
 	case kTouchModeDirect:
 		_currentTouchMode = kTouchModeTouchpad;
@@ -383,6 +391,8 @@ bool OSystem_iOS7::handleEvent_swipe(Common::Event &event, int direction, int to
 
 		case kUIViewSwipeRight: {
 			// Swipe right
+			if (nearGrogLockDirect())
+				return false;
 			if (_currentTouchMode == kTouchModeDirect) {
 				_currentTouchMode = kTouchModeTouchpad;
 			} else {
