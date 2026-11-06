@@ -136,6 +136,8 @@ private:
 	uint32 _lastEmit;
 	int _typed;       // keys typed since the last Enter or space
 	uint8 _heldScan;
+	int _flash;          // a button just touched, shown blue a moment
+	uint32 _flashUntil;
 
 	// Tap and Stick: the hunter steered (8 ways), walking while wanted
 	Common::Point _hunter;

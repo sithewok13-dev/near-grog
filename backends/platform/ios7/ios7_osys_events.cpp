@@ -214,6 +214,7 @@ bool OSystem_iOS7::handleEvent_touchBegan(Common::Event &event, int x, int y) {
 bool OSystem_iOS7::handleEvent_touchEnded(Common::Event &event, int x, int y) {
 	if (!nearGrogRawTouch())
 		return false;
+	_nearGrogTouchEnded = getMillis();
 	Common::Point mouse(x, y);
 	dynamic_cast<iOSGraphicsManager *>(_graphicsManager)->notifyMousePosition(mouse);
 	event.type = Common::EVENT_LBUTTONUP;
@@ -416,8 +417,10 @@ bool OSystem_iOS7::handleEvent_swipe(Common::Event &event, int direction, int to
 }
 
 bool OSystem_iOS7::handleEvent_tap(Common::Event &event, UIViewTapDescription type, int touches) {
-	if (touches == 1 && nearGrogRawTouch())
-		return false; // (the touch itself was the click)
+	// (the touch itself was the click - also when the lift just opened a
+	// dialog, which would otherwise take this tap as a click of its own)
+	if (touches == 1 && (nearGrogRawTouch() || getMillis() - _nearGrogTouchEnded < 400))
+		return false;
 	if (touches == 1) {
 		if (type == kUIViewTapSingle) {
 			event.type = Common::EVENT_LBUTTONDOWN;

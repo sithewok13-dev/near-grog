@@ -92,6 +92,7 @@ OSystem_iOS7::OSystem_iOS7() :
 	_screenOrientation(kScreenOrientationAuto),
 	_runningTasks(0) {
 	_queuedInputEvent.type = Common::EVENT_INVALID;
+	_nearGrogTouchEnded = 0;
 	_currentTouchMode = kTouchModeTouchpad;
 
 	_chrootBasePath = iOS7_getDocumentsDir();

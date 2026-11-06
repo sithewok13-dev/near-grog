@@ -32,7 +32,8 @@ namespace DosGames {
 namespace {
 
 const int kGap = 10;
-const uint32 kHoldMillis = 500;
+const uint32 kHoldMillis = 300; // (Save / Load held: the quick one)
+const uint32 kFlashMillis = 150; // (a touched button shows blue at least this long)
 
 // PC scan codes
 enum {
@@ -43,7 +44,7 @@ enum {
 } // End of anonymous namespace
 
 TouchPad::TouchPad() : _w(0), _h(0), _portrait(false), _hunting(false), _gameDirty(true), _padDirty(true), _allDirty(true),
-		_pressed(-1), _pressTime(0), _holdFired(false), _keyHeld(false), _heldFrames(0), _frame(0), _downFrame(0), _lastEmit(0), _typed(0), _heldScan(0),
+		_pressed(-1), _pressTime(0), _holdFired(false), _keyHeld(false), _heldFrames(0), _frame(0), _downFrame(0), _lastEmit(0), _typed(0), _heldScan(0), _flash(-1), _flashUntil(0),
 		_hunterSeen(false), _movedFrame(0), _walkWait(0), _wantWalk(false), _wantDir(-1), _sentDir(-1),
 		_stickR(0), _stickDown(false), _stickMoved(false), _stickTime(0), _fieldDown(false), _fieldWalk(false), _fieldTime(0) {
 	for (int i = 0; i < 256; i++)
@@ -67,7 +68,7 @@ bool TouchPad::portraitScreen() {
 
 TouchPad::Aim TouchPad::configAim() {
 	const Common::String a = ConfMan.get("neargrog_hunt_aim");
-	return a == "point" ? kAimPoint : a == "turn" ? kAimTurn : a == "stick" ? kAimStick : kAimTap;
+	return a == "point" ? kAimPoint : a == "turn" ? kAimTurn : a == "tap" ? kAimTap : kAimStick;
 }
 
 const char *TouchPad::aimName(Aim a) {
@@ -155,6 +156,7 @@ void TouchPad::layout() {
 
 	_buttons.clear();
 	_pressed = -1;
+	_flash = -1;
 	// Save, Load, Menu along the top
 	const Common::Rect &r = _padBox;
 	const int top = _portrait ? 56 : 48;
@@ -473,11 +475,15 @@ TouchPad::Action TouchPad::press(Common::Point p) {
 	const int i = buttonAt(p);
 	if (i < 0)
 		return kNone;
+	_flash = i;
+	_flashUntil = g_system->getMillis() + kFlashMillis;
+	_padDirty = true;
+	if (_buttons[i].action == kTray || _buttons[i].action == kKeyboard)
+		return (Action)_buttons[i].action; // (at once: nothing to hold)
 	_pressed = i;
 	_pressTime = g_system->getMillis();
 	_holdFired = false;
 	_heldFrames = 0;
-	_padDirty = true;
 	if (_buttons[i].action < 0)
 		keyDown(_buttons[i]);
 	return kNone;
@@ -520,16 +526,18 @@ TouchPad::Action TouchPad::release(Common::Point p) {
 		return kNone;
 	}
 	_pressed = -1;
-	Common::Rect box = b.box;
-	box.grow(kGap);
-	if (_holdFired || !box.contains(p))
+	if (_holdFired)
 		return kNone;
-	return (Action)b.action;
+	return (Action)b.action; // (Save / Load: a tap, the dialog)
 }
 
 TouchPad::Action TouchPad::tick() {
 	_frame++;
 	steer();
+	if (_flash >= 0 && g_system->getMillis() >= _flashUntil) {
+		_flash = -1;
+		_padDirty = true;
+	}
 	if (_pressed < 0)
 		return kNone;
 	const Button &b = _buttons[_pressed];
@@ -723,7 +731,7 @@ void TouchPad::drawPad() {
 	const int radius = _portrait ? 18 : 14;
 	for (uint i = 0; i < _buttons.size(); i++) {
 		const Button &b = _buttons[i];
-		const bool down = (int)i == _pressed;
+		const bool down = (int)i == _pressed || (int)i == _flash;
 		uint32 fill;
 		switch (b.style) {
 		case kBlue: fill = down ? rgb(110, 165, 235) : rgb(60, 120, 200); break;

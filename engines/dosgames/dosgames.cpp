@@ -199,13 +199,10 @@ bool DosGamesEngine::handleEvents() {
 			case TouchPad::kLoadDialog: loadGameDialog(); break;
 			case TouchPad::kTray: openMainMenuDialog(); break;
 			case TouchPad::kKeyboard:
-				// open (closed first: iOS can think it's up when it isn't),
-				// or, pressed again, closed
+				// opened, or (pressed again while it's up) closed
 				if (g_system->hasFeature(OSystem::kFeatureVirtualKeyboard)) {
-					const bool open = !_keyboardUp || !g_system->getFeatureState(OSystem::kFeatureVirtualKeyboard);
-					g_system->setFeatureState(OSystem::kFeatureVirtualKeyboard, false);
-					if (open)
-						g_system->setFeatureState(OSystem::kFeatureVirtualKeyboard, true);
+					const bool open = !(_keyboardUp && g_system->getFeatureState(OSystem::kFeatureVirtualKeyboard));
+					g_system->setFeatureState(OSystem::kFeatureVirtualKeyboard, open);
 					_keyboardUp = open;
 				}
 				break;

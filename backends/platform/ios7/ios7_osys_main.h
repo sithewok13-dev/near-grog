@@ -68,6 +68,7 @@ protected:
 	TouchMode _currentTouchMode;
 	int _lastPadX;
 	int _lastPadY;
+	uint32 _nearGrogTouchEnded; // Near-Grog: when a raw touch last lifted
 
 	ScreenOrientation _screenOrientation;
 
