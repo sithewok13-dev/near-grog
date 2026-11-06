@@ -512,7 +512,7 @@ void DosGamesEngine::quickLoad() {
 }
 
 namespace {
-enum { kCmdSide = 'side', kCmdClassic = 'clsc', kCmdInstructions = 'inst', kCmdButtons = 'btns', kCmdScummVM = 'smvm', kCmdResume = 'resm' };
+enum { kCmdSide = 'side', kCmdEnter = 'entr', kCmdClassic = 'clsc', kCmdInstructions = 'inst', kCmdButtons = 'btns', kCmdScummVM = 'smvm', kCmdResume = 'resm' };
 }
 
 // Menu held: Near-Grog's tray - the hunting controls, its instructions,
@@ -530,6 +530,8 @@ void DosGamesEngine::openMainMenuDialog() {
 			Common::Array<uint32> cmds;
 			labels.push_back(Common::String::format("Keys: %s", TouchPad::keysLeft() ? "Left" : "Right"));
 			cmds.push_back(kCmdSide);
+			labels.push_back(TouchPad::enterRight() ? "Keys: Space | Enter" : "Keys: Enter | Space");
+			cmds.push_back(kCmdEnter);
 			labels.push_back(Common::String::format("Classic hunt controls: %s", configOn("neargrog_hunt_classic") ? "On" : "Off"));
 			cmds.push_back(kCmdClassic);
 			labels.push_back(Common::String::format("Hunting instructions: %s", configOn("neargrog_hunt_instructions") ? "Shown" : "Skipped"));
@@ -542,6 +544,13 @@ void DosGamesEngine::openMainMenuDialog() {
 			cmds.push_back(kCmdResume);
 			NearGrog::TrayPage tray("Near-Grog", labels, cmds);
 			cmd = tray.runModal();
+		}
+		if (cmd == (uint32)kCmdEnter) {
+			ConfMan.setBool("neargrog_enter_left", TouchPad::enterRight());
+			ConfMan.flushToDisk();
+			_pad->refresh();
+			presentPad();
+			continue;
 		}
 		if (cmd == (uint32)kCmdSide) {
 			ConfMan.setBool("neargrog_keys_left", !TouchPad::keysLeft());

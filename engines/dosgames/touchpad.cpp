@@ -32,9 +32,9 @@ namespace DosGames {
 namespace {
 
 const int kGap = 10;
-// Held this long (the ring filling): Save / Load the quick one, Menu the tray
-uint32 holdMillis(int action) {
-	return action == TouchPad::kTray ? 500 : 300;
+// Held this long (the ring filling): Save / Load the quick one, Menu the tray (all half a second)
+uint32 holdMillis(int) {
+	return 500;
 }
 const uint32 kFlashMillis = 250; // (a touched button shows blue at least this long)
 
@@ -67,6 +67,11 @@ bool TouchPad::portraitScreen() {
 	if (o == "landscape")
 		return false;
 	return g_system->getOverlayHeight() > g_system->getOverlayWidth();
+}
+
+// Enter at the right of Space (the default), else the left
+bool TouchPad::enterRight() {
+	return !ConfMan.hasKey("neargrog_enter_left") || !ConfMan.getBool("neargrog_enter_left");
 }
 
 // Landscape: the keys at the left of the game (the tray), else the right
@@ -217,8 +222,10 @@ void TouchPad::keypad(const Common::Rect &r) {
 	addButton(Common::Rect(r.left, y, r.left + hw, y + rh), "Delete", kPlain, -1, kScanBackspace, 8);
 	addButton(Common::Rect(r.right - hw, y, r.right, y + rh), "Keyboard", kPlain, kKeyboard);
 	y += rh + kGap;
-	addButton(Common::Rect(r.left, y, r.left + hw, y + rh), "Enter", kPlain, -1, kScanEnter, 13);
-	addButton(Common::Rect(r.right - hw, y, r.right, y + rh), "Space", kBlue, -1, kScanSpace, ' ');
+	// Space at the left, Enter at the right (the tray can swap them)
+	const Common::Rect a(r.left, y, r.left + hw, y + rh), b(r.right - hw, y, r.right, y + rh);
+	addButton(enterRight() ? b : a, "Enter", kPlain, -1, kScanEnter, 13);
+	addButton(enterRight() ? a : b, "Space", kBlue, -1, kScanSpace, ' ');
 }
 
 // Hunting. The stick (pushed: the rifle points that way; past its ring, he
@@ -695,10 +702,10 @@ void TouchPad::arrow(float cx, float cy, float size, float angle, uint32 col) {
 
 // Save / Load held: a ring round the button fills up, then the quick save
 void TouchPad::drawHoldRing(const Common::Rect &r, int radius, float progress) {
-	const uint32 col = rgb(60, 120, 200);
+	const uint32 col = rgb(255, 196, 40); // (amber: clear against the keys' blue and grey)
 	uint8 cr, cg, cb;
 	_format.colorToRGB(col, cr, cg, cb);
-	const float g = 4, t = 3;
+	const float g = 4, t = 5;
 	const float l = r.left - g, tp = r.top - g, rt = r.right + g, bt = r.bottom + g;
 	const float R = MIN<float>(radius + g, MIN(rt - l, bt - tp) / 2);
 	const float cx = (l + rt) / 2, hw = (rt - l) / 2, hh = (bt - tp) / 2;
