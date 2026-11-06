@@ -550,9 +550,9 @@ void DosGamesEngine::drawEdition(byte *scr) {
 // it (on the trail, over the party's names), in the game's own letter and
 // between the seams: the canvas is three or more panels side by side - split
 // by black seams with the grey as shading (the big wagon), or by grey seams
-// (the small one) - the first, the front with its opening, left out. The S
-// goes in one panel, all of it on that panel, as large and as near its
-// middle as it fits.
+// (the small one) - the first, the front with its opening. The S goes in
+// the second panel, the first behind the front, all of it on that panel, as
+// large and as near its middle as it fits.
 void DosGamesEngine::drawWagonS(byte *scr) {
 	if (ConfMan.get("neargrog_edition").empty())
 		return;
@@ -647,13 +647,13 @@ void DosGamesEngine::drawWagonS(byte *scr) {
 			_wagonS.clear();
 			for (int sc = 2; sc >= 1 && _wagonS.empty(); sc--) {
 				int bestD = 1 << 30;
-				for (int k = 1; k < runLen; k++) {
+				for (int k = 1; k < 2; k++) { // (the second panel: the first behind the front)
 					const Blob &p = blobs[run[k]];
 					const int id = run[k] + 1;
 					const int mx = (int)(p.sx / p.n), my = (int)(p.sy / p.n);
 					for (int cy = p.y0; cy <= p.y1; cy++)
 						for (int cx = p.x0; cx <= p.x1; cx++) {
-							const int d = ABS(cx + 4 * sc - mx) + ABS(cy + 4 * sc - my) - p.n / 100;
+							const int d = ABS(cx + 4 * sc - mx) + ABS(cy + 4 * sc - my);
 							if (d >= bestD)
 								continue;
 							bool fits = true;
