@@ -46,8 +46,10 @@ sideloading) to the `ios-latest` prerelease. **Pushing to `main` publishes a tes
 build.** The build includes every ScummVM engine plus Near-Grog's own; the repo is
 public, so GitHub's standard runners are free.
 
-The same workflow also builds the standalone app, **The Oregon Trail (Susy
-Edition)** (`Oregon-Trail-Susy-ios.ipa`, the `oregon-latest` prerelease): only
+The same workflow also builds the standalone app, **Oregon Trail Susy
+Edition** ("OTSE" on the home screen, its own icon from
+`dists/neargrog/oregon-susy-icon.png`; `Oregon-Trail-Susy-Edition-ios.ipa`, the
+`oregon-latest` prerelease): only
 the DOS games engine, and `NEARGROG_STANDALONE` written into
 `base/neargrog_build.h`, so it opens straight into the game with no launcher
 (`base/neargrog_standalone.h`). The player copies the game's files into its

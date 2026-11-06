@@ -20,6 +20,8 @@
  */
 
 #include "audio/fmopl.h"
+#include "audio/softsynth/pcspk.h"
+#include "common/algorithm.h"
 #include "common/config-manager.h"
 #include "common/events.h"
 #include "common/file.h"
@@ -47,7 +49,7 @@ static bool scummvmButtons() {
 }
 
 DosGamesEngine::DosGamesEngine(OSystem *syst, const DosGameDescription *desc) :
-		Engine(syst), _desc(desc), _pc(nullptr), _opl(nullptr), _files(nullptr), _pad(nullptr), _keyboardUp(false), _namesFrames(0), _namesKeyboard(false), _padTicks(0), _instructionsWait(0) {
+		Engine(syst), _desc(desc), _pc(nullptr), _opl(nullptr), _pcSpeaker(nullptr), _files(nullptr), _pad(nullptr), _keyboardUp(false), _namesFrames(0), _namesKeyboard(false), _padTicks(0), _instructionsWait(0) {
 }
 
 DosGamesEngine::~DosGamesEngine() {
@@ -55,6 +57,7 @@ DosGamesEngine::~DosGamesEngine() {
 		_opl->stop();
 		delete _opl;
 	}
+	delete _pcSpeaker;
 	if (_pad) {
 		NearGrog::wholeScreen(false);
 		ConfMan.removeKey("neargrog_lock_direct", Common::ConfigManager::kTransientDomain);
@@ -112,7 +115,22 @@ Common::StringArray DosGamesEngine::listFiles() {
 	return names;
 }
 
+// The PC speaker (The Oregon Trail's beeps and tunes)
+void DosGamesEngine::speaker(bool on, int freq) {
+	if (!_pcSpeaker)
+		return;
+	if (on && freq >= 20 && freq <= 20000)
+		_pcSpeaker->play(Audio::PCSpeaker::kWaveFormSquare, freq, -1);
+	else
+		_pcSpeaker->stop();
+}
+
 void DosGamesEngine::initSound() {
+	_pcSpeaker = new Audio::PCSpeaker();
+	if (!_pcSpeaker->init()) {
+		delete _pcSpeaker;
+		_pcSpeaker = nullptr;
+	}
 	_opl = OPL::Config::create();
 	if (!_opl || !_opl->init()) {
 		warning("DosGames: no AdLib emulator, playing without music");
@@ -489,13 +507,12 @@ void DosGamesEngine::runPad() {
 // name under "Version 2.1" on MECC's title, in the game's own letters - read
 // from its font in memory (each letter's eight rows 256 bytes apart), once
 // they're found to draw "Version" just as it's on the screen
-void DosGamesEngine::drawEdition() {
+void DosGamesEngine::drawEdition(byte *scr) {
 	const Common::String edition = ConfMan.get("neargrog_edition");
 	if (edition.empty())
 		return;
 	const uint32 kFont = 0x46606;
 	const byte *mem = _pc->memory();
-	byte *scr = (byte *)_screen.getPixels();
 	const int pitch = _screen.pitch;
 	const byte *pal = _pc->palette();
 	// (the title's 320 x 200, doubled)
@@ -529,12 +546,128 @@ void DosGamesEngine::drawEdition() {
 		}
 }
 
+// The standalone's S on the covered wagon's canvas, wherever the game draws
+// it (on the trail, over the party's names): the canvas is three or more
+// white panels side by side between grey hoops, the first (the front, with
+// its opening) left out; the S, in the game's own letter, at the middle of
+// the rest, only on the canvas
+void DosGamesEngine::drawWagonS(byte *scr) {
+	if (ConfMan.get("neargrog_edition").empty())
+		return;
+	const uint32 kFont = 0x46606;
+	const byte *mem = _pc->memory();
+	byte glyph[8];
+	int rows = 0;
+	for (int r = 0; r < 8; r++)
+		rows += (glyph[r] = mem[kFont + r * 256 + 'S']) != 0;
+	if (rows < 5 || glyph[7])
+		return; // (no font: not loaded)
+	enum { kW = 320, kH = 200, kMaxBlobs = 64 };
+	const int pitch = _screen.pitch;
+	const byte *pal = _pc->palette();
+	auto at = [&](int x, int y) { return scr + 2 * y * pitch + 2 * x; };
+	bool white[256];
+	int black = -1;
+	for (int i = 0; i < 256; i++) {
+		white[i] = pal[i * 3] >= 250 && pal[i * 3 + 1] >= 250 && pal[i * 3 + 2] >= 250;
+		if (black < 0 && pal[i * 3] < 8 && pal[i * 3 + 1] < 8 && pal[i * 3 + 2] < 8)
+			black = i;
+	}
+	if (black < 0)
+		return;
+	// the white areas (the canvas's panels among them)
+	static byte seen[kW * kH];
+	memset(seen, 0, sizeof(seen));
+	static int16 stack[kW * kH * 2];
+	struct Blob { int n, x0, y0, x1, y1; } blobs[kMaxBlobs];
+	int count = 0;
+	for (int y = 0; y < kH; y++)
+		for (int x = 0; x < kW; x++) {
+			if (seen[y * kW + x] || !white[*at(x, y)])
+				continue;
+			Blob b = { 0, x, y, x, y };
+			int sp = 0;
+			stack[sp++] = x;
+			stack[sp++] = y;
+			seen[y * kW + x] = 1;
+			while (sp) {
+				const int cy = stack[--sp], cx = stack[--sp];
+				b.n++;
+				b.x0 = MIN(b.x0, cx); b.x1 = MAX(b.x1, cx);
+				b.y0 = MIN(b.y0, cy); b.y1 = MAX(b.y1, cy);
+				static const int kDx[4] = { 1, -1, 0, 0 }, kDy[4] = { 0, 0, 1, -1 };
+				for (int d = 0; d < 4; d++) {
+					const int nx = cx + kDx[d], ny = cy + kDy[d];
+					if (nx < 0 || ny < 0 || nx >= kW || ny >= kH || seen[ny * kW + nx] || !white[*at(nx, ny)])
+						continue;
+					seen[ny * kW + nx] = 1;
+					stack[sp++] = nx;
+					stack[sp++] = ny;
+				}
+			}
+			if (b.n >= 60 && b.n < 1500 && count < kMaxBlobs)
+				blobs[count++] = b;
+		}
+	// panels side by side (sorted by their left edge), tops level
+	Common::sort(blobs, blobs + count, [](const Blob &a, const Blob &b) { return a.x0 < b.x0; });
+	int best = -1, bestLen = 0;
+	for (int i = 0; i < count; i++) {
+		int len = 1, last = i;
+		for (int j = i + 1; j < count; j++)
+			if (ABS(blobs[j].y0 - blobs[i].y0) <= 4 && blobs[j].x0 - blobs[last].x1 <= 4 && blobs[j].x0 >= blobs[last].x0) {
+				len++;
+				last = j;
+			}
+		if (len >= 3 && len > bestLen) {
+			best = i;
+			bestLen = len;
+		}
+	}
+	if (best < 0)
+		return;
+	// the panels after the front
+	int x0 = kW, y0 = kH, x1 = 0, y1 = 0, last = best, k = 1;
+	for (int j = best + 1; j < count && k < bestLen; j++)
+		if (ABS(blobs[j].y0 - blobs[best].y0) <= 4 && blobs[j].x0 - blobs[last].x1 <= 4 && blobs[j].x0 >= blobs[last].x0) {
+			x0 = MIN(x0, blobs[j].x0); x1 = MAX(x1, blobs[j].x1);
+			y0 = MIN(y0, blobs[j].y0); y1 = MAX(y1, blobs[j].y1);
+			last = j;
+			k++;
+		}
+	if (x1 <= x0)
+		return;
+	const int sc = y1 - y0 >= 30 ? 2 : 1;
+	const int cx = (x0 + x1) / 2 - 4 * sc, cy = (y0 + y1) / 2 - 4 * sc;
+	for (int r = 0; r < 8; r++)
+		for (int b = 0; b < 8; b++) {
+			if (!(glyph[r] & (0x80 >> b)))
+				continue;
+			for (int dy = 0; dy < sc; dy++)
+				for (int dx = 0; dx < sc; dx++) {
+					const int x = cx + b * sc + dx, y = cy + r * sc + dy;
+					if (x < 0 || y < 0 || x >= kW || y >= kH || *at(x, y) == black)
+						continue;
+					byte *p = at(x, y);
+					p[0] = p[1] = p[pitch] = p[pitch + 1] = black;
+				}
+		}
+}
+
 void DosGamesEngine::presentPad() {
 	if (_pc->paletteChanged())
 		_pad->setPalette(_pc->palette());
 	_pc->render((byte *)_screen.getPixels(), _screen.pitch);
-	drawEdition();
-	const Common::Rect r = _pad->draw((const byte *)_screen.getPixels());
+	const byte *shown = (const byte *)_screen.getPixels();
+	if (!ConfMan.get("neargrog_edition").empty()) {
+		// the standalone's touches, on a copy (what's read of the screen -
+		// the names, the hunter - stays the game's own)
+		_shown.resize(_screen.pitch * _screen.h);
+		memcpy(_shown.data(), shown, _shown.size());
+		drawEdition(_shown.data());
+		drawWagonS(_shown.data());
+		shown = _shown.data();
+	}
+	const Common::Rect r = _pad->draw(shown);
 	if (r.isEmpty())
 		return;
 	const Graphics::ManagedSurface &o = _pad->output();

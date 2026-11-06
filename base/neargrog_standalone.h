@@ -32,7 +32,8 @@
 #include "gui/message.h"
 
 /**
- * Near-Grog's standalone app, The Oregon Trail (Susy Edition): no launcher.
+ * Near-Grog's standalone app, Oregon Trail Susy Edition ("OTSE" on the home
+ * screen): no launcher.
  * It finds the game's files where the player put them - the app's own
  * folder in the Files app, loose or zipped, at most a few folders down -
  * and starts it straight away, without the "testing" warning; when the game
@@ -81,7 +82,7 @@ inline bool standaloneStart() {
 				ConfMan.addGameDomain(kStandaloneTarget);
 			ConfMan.set("gameid", "oregontrail", kStandaloneTarget);
 			ConfMan.set("engineid", "dosgames", kStandaloneTarget);
-			ConfMan.set("description", "The Oregon Trail (Susy Edition)", kStandaloneTarget);
+			ConfMan.set("description", "Oregon Trail Susy Edition", kStandaloneTarget);
 			ConfMan.setPath("path", dir.getPath(), kStandaloneTarget);
 			ConfMan.set("neargrog_edition", "Susy Edition", kStandaloneTarget);
 			ConfMan.flushToDisk();
@@ -91,7 +92,7 @@ inline bool standaloneStart() {
 		GUI::MessageDialog dialog(Common::U32String(
 			"The Oregon Trail's files aren't here yet.\n\n"
 			"In the Files app, copy them (OREGON.EXE and the rest, or their zip) "
-			"into On My iPhone > Oregon Trail, then tap OK."));
+			"into On My iPhone > OTSE, then tap OK."));
 		dialog.runModal();
 	}
 }

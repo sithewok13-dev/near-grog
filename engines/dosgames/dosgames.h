@@ -35,6 +35,10 @@ namespace OPL {
 class OPL;
 }
 
+namespace Audio {
+class PCSpeaker;
+}
+
 namespace DosGames {
 
 /**
@@ -60,6 +64,7 @@ public:
 	void writeFile(const Common::String &name, const Common::Array<byte> &data) override;
 	Common::StringArray listFiles() override;
 	void oplWrite(int reg, int value) override;
+	void speaker(bool on, int freq) override;
 
 private:
 	GameFiles *_files;
@@ -67,6 +72,7 @@ private:
 	DosPC *_pc;
 	Graphics::Surface _screen;
 	OPL::OPL *_opl;
+	Audio::PCSpeaker *_pcSpeaker;
 	Common::Mutex _oplMutex;
 	Common::Array<uint16> _oplWrites;
 	// Near-Grog: The Oregon Trail's touch keys
@@ -82,7 +88,9 @@ private:
 	uint32 _padTicks, _instructionsWait;
 	void runPad();
 	void presentPad();
-	void drawEdition();
+	void drawEdition(byte *scr);
+	void drawWagonS(byte *scr);
+	Common::Array<byte> _shown;
 	void quickSave();
 	void quickLoad();
 

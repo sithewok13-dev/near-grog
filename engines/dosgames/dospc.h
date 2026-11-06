@@ -47,6 +47,8 @@ public:
 	/** Names of the files in the game folder and saved ones, upper case. */
 	virtual Common::StringArray listFiles() = 0;
 	virtual void oplWrite(int reg, int value) = 0;
+	/** The PC speaker: sounding (at a frequency in Hz) or not. */
+	virtual void speaker(bool on, int freq) {}
 };
 
 /**
@@ -158,6 +160,12 @@ private:
 
 	// Timer
 	uint32 _pitDivisor;
+	// The PC speaker: the timer's channel 2 (its divisor) gated by port 61h
+	uint32 _spkDivisor;
+	uint8 _spkLatchLow, _port61;
+	bool _spkLowNext, _spkOn;
+	int _spkFreq;
+	void updateSpeaker();
 	uint8 _pitLatchLow;
 	bool _pitLowNext;
 	int32 _tickAccum;

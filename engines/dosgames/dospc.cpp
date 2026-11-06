@@ -56,7 +56,7 @@ DosPC::DosPC(DosHost *host) : _host(host), _cpu(this), _nextProgram(0), _current
 		_returnCode(0), _finished(false), _foundPos(0), _videoMode(3), _paletteDirty(true),
 		_dacWrite(0), _dacRead(0), _dacComp(0), _instructions(0), _port60(0), _port60Ascii(0), _bootKeyFrame(0), _picMask(0), _picInService(0),
 		_mouseX(320), _mouseY(100), _mouseButtons(0), _mouseMinX(0), _mouseMaxX(639),
-		_mouseMinY(0), _mouseMaxY(199), _mouseCursor(-1), _pitDivisor(65536), _pitLatchLow(0),
+		_mouseMinY(0), _mouseMaxY(199), _mouseCursor(-1), _pitDivisor(65536), _spkDivisor(65536), _spkLatchLow(0), _port61(0), _spkLowNext(true), _spkOn(false), _spkFreq(0), _pitLatchLow(0),
 		_pitLowNext(true), _tickAccum(0), _oplReg(0), _oplTimerCtl(0), _waitingForKey(false),
 		_frame(0) {
 	_mem = new byte[kMemSize];
@@ -153,6 +153,18 @@ void DosPC::setStackedFlag(uint16 flag, bool on) {
 
 // --- Ports ---
 
+// The speaker sounds while port 61h lets channel 2 through (bits 0 and 1)
+void DosPC::updateSpeaker() {
+	const bool on = (_port61 & 3) == 3;
+	const int freq = (int)(kPitHz / _spkDivisor);
+	if (on == _spkOn && (!on || freq == _spkFreq))
+		return;
+	_spkOn = on;
+	_spkFreq = freq;
+	if (_host)
+		_host->speaker(on, freq);
+}
+
 uint8 DosPC::in8(uint16 port) {
 	switch (port) {
 	case 0x21:
@@ -162,7 +174,7 @@ uint8 DosPC::in8(uint16 port) {
 	case 0x60:
 		return _port60;
 	case 0x61:
-		return 0x20;
+		return (_port61 & 3) | 0x20;
 	case 0x64:
 		return 0x1C;
 	case 0x388:
@@ -221,9 +233,27 @@ void DosPC::out8(uint16 port, uint8 v) {
 		}
 		_pitLowNext = !_pitLowNext;
 		break;
+	case 0x42:
+		// channel 2: the speaker's tone
+		if (_spkLowNext) {
+			_spkLatchLow = v;
+		} else {
+			_spkDivisor = _spkLatchLow | (v << 8);
+			if (_spkDivisor == 0)
+				_spkDivisor = 65536;
+			updateSpeaker();
+		}
+		_spkLowNext = !_spkLowNext;
+		break;
 	case 0x43:
 		if ((v & 0xC0) == 0)
 			_pitLowNext = true;
+		else if ((v & 0xC0) == 0x80)
+			_spkLowNext = true;
+		break;
+	case 0x61:
+		_port61 = v;
+		updateSpeaker();
 		break;
 	case 0x388:
 	case 0x228:

@@ -103,16 +103,18 @@ jobs:
 
           Install: sideload \`$APP_NAME-ios.ipa\` (for example with Feather). Bring your own game files."
 
-  # The standalone app: The Oregon Trail (Susy Edition) - only the DOS games
-  # engine, no launcher (base/neargrog_standalone.h); it opens straight into
-  # the game, whose files the player copies into its folder in Files.
+  # The standalone app: Oregon Trail Susy Edition ("OTSE" on the home
+  # screen, its own icon) - only the DOS games engine, no launcher
+  # (base/neargrog_standalone.h); it opens straight into the game, whose
+  # files the player copies into its folder in Files.
   oregon:
     runs-on: macos-15
     timeout-minutes: 90
     env:
       SA_BUNDLE_ID: io.github.sithewok13.oregontrail.susy
-      SA_APP_NAME: Oregon Trail
-      SA_IPA: Oregon-Trail-Susy-ios.ipa
+      SA_APP_NAME: Oregon Trail Susy Edition
+      SA_HOME_NAME: OTSE
+      SA_IPA: Oregon-Trail-Susy-Edition-ios.ipa
     defaults:
       run:
         shell: bash
@@ -131,7 +133,14 @@ jobs:
           xcodebuild -quiet
 
       - name: Make this build the standalone
-        run: printf '#define NEARGROG_STANDALONE 1\n' >> base/neargrog_build.h
+        run: |
+          printf '#define NEARGROG_STANDALONE 1\n' >> base/neargrog_build.h
+          # its icon (dists/neargrog/oregon-susy-icon.png), at each size the
+          # app icon set has
+          for f in dists/ios7/Images.xcassets/AppIcon.appiconset/*.png; do
+            w=$(sips -g pixelWidth "$f" | awk '/pixelWidth/ {print $2}')
+            sips -z "$w" "$w" dists/neargrog/oregon-susy-icon.png --out "$f" >/dev/null
+          done
 
       - name: Generate the Xcode project
         run: |
@@ -164,7 +173,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $SA_BUNDLE_ID" "$PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleName $SA_APP_NAME" "$PLIST"
           /usr/libexec/PlistBuddy -c "Delete :CFBundleDisplayName" "$PLIST" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $SA_APP_NAME" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $SA_HOME_NAME" "$PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GITHUB_RUN_NUMBER" "$PLIST"
           mkdir -p ipa/Payload
           cp -R "$APP" ipa/Payload/
@@ -174,7 +183,7 @@ jobs:
       - name: Keep the IPA as a build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Oregon-Trail-Susy-ios
+          name: Oregon-Trail-Susy-Edition-ios
           path: ${{ env.SA_IPA }}
 
       - name: Publish to oregon-latest
@@ -184,9 +193,9 @@ jobs:
           gh release delete oregon-latest --cleanup-tag --yes 2>/dev/null || true
           gh release create oregon-latest "$SA_IPA" \
             --prerelease --latest=false --target "$GITHUB_SHA" \
-            --title "The Oregon Trail, Susy Edition, for iOS (latest test build)" \
+            --title "Oregon Trail Susy Edition for iOS (latest test build)" \
             --notes "Test build from commit ${GITHUB_SHA::7}. It may be broken or untested.
 
-          A standalone app: it opens straight into The Oregon Trail (MECC's 1990 DOS release). The game's files are not included - copy them (OREGON.EXE and the rest, or their zip) into Files > On My iPhone > Oregon Trail.
+          A standalone app: it opens straight into The Oregon Trail (MECC's 1990 DOS release). It shows as OTSE on the home screen. The game's files are not included - copy them (OREGON.EXE and the rest, or their zip) into Files > On My iPhone > OTSE.
 
           Install: sideload \`$SA_IPA\` (for example with Feather)."
