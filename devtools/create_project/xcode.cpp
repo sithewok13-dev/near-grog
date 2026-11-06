@@ -484,6 +484,9 @@ void XcodeProvider::setupFrameworksBuildPhase(const BuildSetup &setup) {
 	if (CONTAINS_DEFINE(setup.defines, "USE_FREETYPE2")) {
 		DEF_LOCALLIB_STATIC("libfreetype");
 		DEF_LOCALXCFRAMEWORK("freetype", projectOutputDirectory);
+		// Near-Grog: its libbz2 (declared above when FluidSynth is in)
+		if (CONTAINS_DEFINE(setup.defines, "USE_FLUIDLITE") || !CONTAINS_DEFINE(setup.defines, "USE_FLUIDSYNTH"))
+			DEF_LOCALXCFRAMEWORK("bz2", projectOutputDirectory);
 	}
 	if (CONTAINS_DEFINE(setup.defines, "USE_JPEG")) {
 		DEF_LOCALLIB_STATIC("libjpeg");
