@@ -42,11 +42,6 @@ static bool configOn(const char *key) {
 	return ConfMan.hasKey(key) && ConfMan.getBool(key);
 }
 
-// A light tap felt at each touch (iOS): on unless the tray turns it off
-static bool vibrate() {
-	return !ConfMan.hasKey("neargrog_vibrate") || ConfMan.getBool("neargrog_vibrate");
-}
-
 static bool scummvmButtons() {
 	return ConfMan.hasKey("neargrog_scummvm_buttons") && ConfMan.getBool("neargrog_scummvm_buttons");
 }
@@ -64,7 +59,6 @@ DosGamesEngine::~DosGamesEngine() {
 		NearGrog::wholeScreen(false);
 		ConfMan.removeKey("neargrog_lock_direct", Common::ConfigManager::kTransientDomain);
 		ConfMan.removeKey("neargrog_hide_buttons", Common::ConfigManager::kTransientDomain);
-		ConfMan.removeKey("neargrog_haptics", Common::ConfigManager::kTransientDomain);
 	}
 	delete _pad;
 	delete _pc;
@@ -295,7 +289,6 @@ Common::Error DosGamesEngine::run() {
 		// unless the tray says otherwise (the Menu key opens ScummVM's menu)
 		ConfMan.setBool("neargrog_lock_direct", true, Common::ConfigManager::kTransientDomain);
 		ConfMan.setBool("neargrog_hide_buttons", !scummvmButtons(), Common::ConfigManager::kTransientDomain);
-		ConfMan.setBool("neargrog_haptics", vibrate(), Common::ConfigManager::kTransientDomain);
 		_pad = new TouchPad();
 		applyLayout();
 	} else {
@@ -519,7 +512,7 @@ void DosGamesEngine::quickLoad() {
 }
 
 namespace {
-enum { kCmdSide = 'side', kCmdVibrate = 'vibr', kCmdClassic = 'clsc', kCmdInstructions = 'inst', kCmdButtons = 'btns', kCmdScummVM = 'smvm', kCmdResume = 'resm' };
+enum { kCmdSide = 'side', kCmdClassic = 'clsc', kCmdInstructions = 'inst', kCmdButtons = 'btns', kCmdScummVM = 'smvm', kCmdResume = 'resm' };
 }
 
 // Menu held: Near-Grog's tray - the hunting controls, its instructions,
@@ -537,8 +530,6 @@ void DosGamesEngine::openMainMenuDialog() {
 			Common::Array<uint32> cmds;
 			labels.push_back(Common::String::format("Keys: %s", TouchPad::keysLeft() ? "Left" : "Right"));
 			cmds.push_back(kCmdSide);
-			labels.push_back(Common::String::format("Vibrate on touch: %s", vibrate() ? "On" : "Off"));
-			cmds.push_back(kCmdVibrate);
 			labels.push_back(Common::String::format("Classic hunt controls: %s", configOn("neargrog_hunt_classic") ? "On" : "Off"));
 			cmds.push_back(kCmdClassic);
 			labels.push_back(Common::String::format("Hunting instructions: %s", configOn("neargrog_hunt_instructions") ? "Shown" : "Skipped"));
@@ -557,12 +548,6 @@ void DosGamesEngine::openMainMenuDialog() {
 			ConfMan.flushToDisk();
 			_pad->refresh();
 			presentPad();
-			continue;
-		}
-		if (cmd == (uint32)kCmdVibrate) {
-			ConfMan.setBool("neargrog_vibrate", !vibrate());
-			ConfMan.setBool("neargrog_haptics", vibrate(), Common::ConfigManager::kTransientDomain);
-			ConfMan.flushToDisk();
 			continue;
 		}
 		if (cmd == (uint32)kCmdClassic || cmd == (uint32)kCmdInstructions) {
