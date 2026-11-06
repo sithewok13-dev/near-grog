@@ -4,6 +4,7 @@ MODULE_OBJS = \
 	cpu8086.o \
 	dosgames.o \
 	dospc.o \
+	touchpad.o \
 	metaengine.o
 
 # This module can be built as a plugin

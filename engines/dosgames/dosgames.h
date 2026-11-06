@@ -29,6 +29,7 @@
 #include "dosgames/detection.h"
 #include "dosgames/dospc.h"
 #include "dosgames/gamefiles.h"
+#include "dosgames/touchpad.h"
 
 namespace OPL {
 class OPL;
@@ -39,7 +40,7 @@ namespace DosGames {
 /**
  * DOS games run from their original programs on a minimal PC (see DosPC):
  * The Fool's Errand, Dondra: A New Beginning (Questmaster I), Countdown and
- * Altered Destiny.
+ * Altered Destiny, The Oregon Trail (with Near-Grog's touch keys, touchpad.h).
  */
 class DosGamesEngine : public Engine, public DosHost {
 public:
@@ -52,6 +53,7 @@ public:
 	bool canSaveGameStateCurrently(Common::U32String *msg = nullptr) override { return true; }
 	Common::Error saveGameStream(Common::WriteStream *stream, bool isAutosave = false) override;
 	Common::Error loadGameStream(Common::SeekableReadStream *stream) override;
+	void openMainMenuDialog() override;
 
 	// DosHost
 	bool readFile(const Common::String &name, Common::Array<byte> &data) override;
@@ -67,6 +69,15 @@ private:
 	OPL::OPL *_opl;
 	Common::Mutex _oplMutex;
 	Common::Array<uint16> _oplWrites;
+	// Near-Grog: The Oregon Trail's touch keys
+	TouchPad *_pad;
+	Graphics::PixelFormat _format;
+	void applyLayout();
+	bool oregonHunting() const;
+	void runPad();
+	void presentPad();
+	void quickSave();
+	void quickLoad();
 
 	void setUpPrograms();
 	void initSound();

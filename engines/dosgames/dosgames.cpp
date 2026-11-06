@@ -30,12 +30,14 @@
 #include "engines/util.h"
 #include "graphics/fonts/dosfont.h"
 #include "graphics/paletteman.h"
+#include "engines/neargrog.h"
+#include "engines/neargrog_cheats.h"
 #include "dosgames/dosgames.h"
 
 namespace DosGames {
 
 DosGamesEngine::DosGamesEngine(OSystem *syst, const DosGameDescription *desc) :
-		Engine(syst), _desc(desc), _pc(nullptr), _opl(nullptr), _files(nullptr) {
+		Engine(syst), _desc(desc), _pc(nullptr), _opl(nullptr), _files(nullptr), _pad(nullptr) {
 }
 
 DosGamesEngine::~DosGamesEngine() {
@@ -43,6 +45,9 @@ DosGamesEngine::~DosGamesEngine() {
 		_opl->stop();
 		delete _opl;
 	}
+	if (_pad)
+		NearGrog::wholeScreen(false);
+	delete _pad;
 	delete _pc;
 	delete _files;
 	_screen.free();
@@ -153,7 +158,9 @@ void DosGamesEngine::setUpPrograms() {
 // PC scan codes for the keys a game needs
 static uint8 scanCode(const Common::KeyState &k) {
 	static const struct { Common::KeyCode key; uint8 scan; } kMap[] = {
-		{ Common::KEYCODE_ESCAPE, 0x01 }, { Common::KEYCODE_BACKSPACE, 0x0E }, { Common::KEYCODE_TAB, 0x0F },
+		{ Common::KEYCODE_ESCAPE, 0x01 }, { Common::KEYCODE_KP7, 0x47 }, { Common::KEYCODE_KP8, 0x48 },
+		{ Common::KEYCODE_KP9, 0x49 }, { Common::KEYCODE_KP4, 0x4B }, { Common::KEYCODE_KP6, 0x4D },
+		{ Common::KEYCODE_KP1, 0x4F }, { Common::KEYCODE_KP2, 0x50 }, { Common::KEYCODE_KP3, 0x51 }, { Common::KEYCODE_BACKSPACE, 0x0E }, { Common::KEYCODE_TAB, 0x0F },
 		{ Common::KEYCODE_RETURN, 0x1C }, { Common::KEYCODE_KP_ENTER, 0x1C }, { Common::KEYCODE_SPACE, 0x39 },
 		{ Common::KEYCODE_UP, 0x48 }, { Common::KEYCODE_DOWN, 0x50 }, { Common::KEYCODE_LEFT, 0x4B },
 		{ Common::KEYCODE_RIGHT, 0x4D }, { Common::KEYCODE_HOME, 0x47 }, { Common::KEYCODE_END, 0x4F },
@@ -177,6 +184,29 @@ static uint8 scanCode(const Common::KeyState &k) {
 bool DosGamesEngine::handleEvents() {
 	Common::Event event;
 	while (g_system->getEventManager()->pollEvent(event)) {
+		if (_pad) {
+			// The touch keys take the touches (the game has no mouse)
+			TouchPad::Action a = TouchPad::kNone;
+			switch (event.type) {
+			case Common::EVENT_LBUTTONDOWN: a = _pad->press(event.mouse); break;
+			case Common::EVENT_MOUSEMOVE: _pad->move(event.mouse); break;
+			case Common::EVENT_LBUTTONUP: a = _pad->release(event.mouse); break;
+			case Common::EVENT_SCREEN_CHANGED: applyLayout(); break;
+			default: break;
+			}
+			switch (a) {
+			case TouchPad::kSaveDialog: saveGameDialog(); break;
+			case TouchPad::kLoadDialog: loadGameDialog(); break;
+			case TouchPad::kTray: openMainMenuDialog(); break;
+			case TouchPad::kKeyboard:
+				if (g_system->hasFeature(OSystem::kFeatureVirtualKeyboard))
+					g_system->setFeatureState(OSystem::kFeatureVirtualKeyboard, !g_system->getFeatureState(OSystem::kFeatureVirtualKeyboard));
+				break;
+			default: break;
+			}
+			if (event.type != Common::EVENT_KEYDOWN && event.type != Common::EVENT_KEYUP)
+				continue;
+		}
 		switch (event.type) {
 		case Common::EVENT_KEYDOWN: {
 			uint8 ascii = event.kbd.ascii < 128 ? event.kbd.ascii : 0;
@@ -221,6 +251,8 @@ Common::Error DosGamesEngine::saveGameStream(Common::WriteStream *stream, bool i
 Common::Error DosGamesEngine::loadGameStream(Common::SeekableReadStream *stream) {
 	if (!_pc->loadState(*stream))
 		return Common::kReadingFailed;
+	if (_pad)
+		_pad->setPalette(_pc->palette());
 	return Common::kNoError;
 }
 
@@ -233,7 +265,14 @@ Common::Error DosGamesEngine::run() {
 		return Common::kNoError;
 	}
 
-	initGraphics(DosPC::kScreenW, DosPC::kScreenH);
+	if (_desc->gameId == kGameOregonTrail) {
+		// Near-Grog: the touch keys (touches as they are: a hold holds)
+		ConfMan.setBool("neargrog_raw_touch", true, Common::ConfigManager::kTransientDomain);
+		_pad = new TouchPad();
+		applyLayout();
+	} else {
+		initGraphics(DosPC::kScreenW, DosPC::kScreenH);
+	}
 	_screen.create(DosPC::kScreenW, DosPC::kScreenH, Graphics::PixelFormat::createFormatCLUT8());
 
 	_pc = new DosPC(this);
@@ -267,13 +306,19 @@ Common::Error DosGamesEngine::run() {
 
 	uint32 next = g_system->getMillis();
 	while (handleEvents()) {
+		if (_pad)
+			runPad();
 		if (!_pc->runFrame())
 			break;
-		if (_pc->paletteChanged())
-			g_system->getPaletteManager()->setPalette(_pc->palette(), 0, 256);
-		_pc->render((byte *)_screen.getPixels(), _screen.pitch);
-		g_system->copyRectToScreen(_screen.getPixels(), _screen.pitch, 0, 0, _screen.w, _screen.h);
-		g_system->updateScreen();
+		if (_pad) {
+			presentPad();
+		} else {
+			if (_pc->paletteChanged())
+				g_system->getPaletteManager()->setPalette(_pc->palette(), 0, 256);
+			_pc->render((byte *)_screen.getPixels(), _screen.pitch);
+			g_system->copyRectToScreen(_screen.getPixels(), _screen.pitch, 0, 0, _screen.w, _screen.h);
+			g_system->updateScreen();
+		}
 
 		next += 20;
 		int32 wait = (int32)(next - g_system->getMillis());
@@ -283,6 +328,122 @@ Common::Error DosGamesEngine::run() {
 			next = g_system->getMillis();
 	}
 	return Common::kNoError;
+}
+
+// --- Near-Grog: The Oregon Trail's touch keys (dosgames/touchpad.h) ---
+
+void DosGamesEngine::applyLayout() {
+	bool found = false;
+	Common::List<Graphics::PixelFormat> formats = g_system->getSupportedFormats();
+	for (Common::List<Graphics::PixelFormat>::const_iterator it = formats.begin(); it != formats.end(); ++it)
+		if (it->bytesPerPixel == 4) {
+			_format = *it;
+			found = true;
+			break;
+		}
+	if (!found)
+		_format = Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0);
+	const bool portrait = TouchPad::portraitScreen();
+	int w, h;
+	NearGrog::canvasSize(portrait, w, h);
+	NearGrog::wholeScreen(true);
+	if (g_system->getWidth() != w || g_system->getHeight() != h || g_system->getScreenFormat() != _format)
+		initGraphics(w, h, &_format);
+	_pad->setup(w, h, portrait, _format);
+	if (_pc)
+		_pad->setPalette(_pc->palette());
+}
+
+// Hunting: the game hooks the timer (INT 1Ch) - as it does while the wagon
+// rolls - and sets its hunting flag, a byte at a fixed place in its data
+// (data segment = the timer handler's code segment + 1306h, offset 2DBAh)
+bool DosGamesEngine::oregonHunting() const {
+	const byte *m = _pc->memory();
+	const uint16 seg = READ_LE_UINT16(m + 0x1C * 4 + 2);
+	if (seg == 0 || seg >= 0xA000)
+		return false;
+	const uint32 flag = ((uint32)(seg + 0x1306) << 4) + 0x2DBA;
+	return flag < 0xA0000 && m[flag] == 1;
+}
+
+void DosGamesEngine::runPad() {
+	switch (_pad->tick()) {
+	case TouchPad::kQuickSave: quickSave(); break;
+	case TouchPad::kQuickLoad: quickLoad(); break;
+	default: break;
+	}
+	_pad->setHunting(oregonHunting());
+	TouchPad::Key k;
+	while (_pad->takeKey(k)) {
+		if (k.down)
+			_pc->keyDown(k.scan, k.ascii);
+		else
+			_pc->keyUp(k.scan);
+	}
+}
+
+void DosGamesEngine::presentPad() {
+	if (_pc->paletteChanged())
+		_pad->setPalette(_pc->palette());
+	_pc->render((byte *)_screen.getPixels(), _screen.pitch);
+	const Common::Rect r = _pad->draw((const byte *)_screen.getPixels());
+	if (r.isEmpty())
+		return;
+	const Graphics::ManagedSurface &o = _pad->output();
+	g_system->copyRectToScreen(o.getBasePtr(r.left, r.top), o.pitch, r.left, r.top, r.width(), r.height());
+	g_system->updateScreen();
+}
+
+void DosGamesEngine::quickSave() {
+	Common::Error err = saveGameState(99, "Quick save");
+	g_system->displayMessageOnOSD(Common::U32String(err.getCode() == Common::kNoError ? "Saved" : "Could not save"));
+}
+
+void DosGamesEngine::quickLoad() {
+	if (!_saveFileMan->exists(getSaveStateName(99))) {
+		g_system->displayMessageOnOSD(Common::U32String("No quick save yet"));
+		return;
+	}
+	Common::Error err = loadGameState(99);
+	g_system->displayMessageOnOSD(Common::U32String(err.getCode() == Common::kNoError ? "Loaded" : "Could not load"));
+}
+
+namespace {
+enum { kCmdAim = 'aim ', kCmdScummVM = 'smvm', kCmdResume = 'resm' };
+}
+
+// Menu: Near-Grog's tray - how the rifle is pointed while hunting
+void DosGamesEngine::openMainMenuDialog() {
+	if (!_pad) {
+		Engine::openMainMenuDialog();
+		return;
+	}
+	while (true) {
+		uint32 cmd;
+		{
+			PauseToken pause = pauseEngine();
+			Common::Array<Common::String> labels;
+			Common::Array<uint32> cmds;
+			labels.push_back(TouchPad::configAim() == TouchPad::kAimTurn ? "Hunting aim: Turn (arrows)" : "Hunting aim: Point (8 ways)");
+			cmds.push_back(kCmdAim);
+			labels.push_back("ScummVM menu");
+			cmds.push_back(kCmdScummVM);
+			labels.push_back("Resume");
+			cmds.push_back(kCmdResume);
+			NearGrog::TrayPage tray("Near-Grog", labels, cmds);
+			cmd = tray.runModal();
+		}
+		if (cmd == (uint32)kCmdAim) {
+			ConfMan.set("neargrog_hunt_aim", TouchPad::configAim() == TouchPad::kAimTurn ? "point" : "turn");
+			ConfMan.flushToDisk();
+			_pad->refresh();
+			presentPad();
+			continue;
+		}
+		if (cmd == (uint32)kCmdScummVM)
+			Engine::openMainMenuDialog();
+		return;
+	}
 }
 
 } // End of namespace DosGames
