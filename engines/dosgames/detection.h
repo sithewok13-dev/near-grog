@@ -30,7 +30,8 @@ enum GameId {
 	kGameFoolsErrand,
 	kGameDondra,
 	kGameCountdown,
-	kGameAlteredDestiny
+	kGameAlteredDestiny,
+	kGameOregonTrail
 };
 
 struct DosGameDescription {

@@ -31,6 +31,7 @@ static const PlainGameDescriptor dosGames[] = {
 	{ "dondra", "Dondra: A New Beginning (Questmaster I)" },
 	{ "countdown", "Countdown" },
 	{ "altereddestiny", "Altered Destiny" },
+	{ "oregontrail", "The Oregon Trail (DOS, 1990)" },
 	{ nullptr, nullptr }
 };
 
@@ -86,6 +87,19 @@ static const DosGameDescription gameDescriptions[] = {
 			GUIO1(GUIO_NOSPEECH)
 		},
 		kGameAlteredDestiny
+	},
+	{
+		{
+			"oregontrail",
+			"",
+			AD_ENTRY2s("OREGON.EXE", "14d58e8d23be05807b596ab9d7ceb47e", 81896,
+			           "OTMCGA.PCL", "b7372781457ebe940a2680ce2e6a5335", 321139),
+			Common::EN_ANY,
+			Common::kPlatformDOS,
+			ADGF_TESTING,
+			GUIO2(GUIO_NOMIDI, GUIO_NOSPEECH)
+		},
+		kGameOregonTrail
 	},
 	{ AD_TABLE_END_MARKER, kGameFoolsErrand }
 };

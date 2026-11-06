@@ -141,6 +141,9 @@ void DosGamesEngine::setUpPrograms() {
 		// The game asks for its input and sound devices: mouse, AdLib
 		_pc->addBootKeys("12");
 		_pc->addProgram("COUNT.EXE", "");
+	} else if (_desc->gameId == kGameOregonTrail) {
+		// MECC's 1990 release: VGA (its README's "OREGON VGA")
+		_pc->addProgram("OREGON.EXE", "VGA");
 	} else {
 		// As the game's own batch file runs it: VGA, mouse and AdLib
 		_pc->addProgram("EXE.EXE", "MCGA Mouse AdLib");
