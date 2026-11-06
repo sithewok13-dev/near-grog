@@ -551,8 +551,9 @@ void DosGamesEngine::drawEdition(byte *scr) {
 // between the seams: the canvas is three or more panels side by side - split
 // by black seams with the grey as shading (the big wagon), or by grey seams
 // (the small one) - the first, the front with its opening. The S goes in
-// the second panel, the first behind the front, all of it on that panel, as
-// large and as near its middle as it fits.
+// the second panel, the first behind the front, all of it on that panel, at
+// the size it has on the wagon seen side on (narrower where the panel is
+// seen at an angle), centred between the seams.
 void DosGamesEngine::drawWagonS(byte *scr) {
 	if (ConfMan.get("neargrog_edition").empty())
 		return;
@@ -569,12 +570,14 @@ void DosGamesEngine::drawWagonS(byte *scr) {
 	const byte *pal = _pc->palette();
 	auto at = [&](int x, int y) { return scr + 2 * y * pitch + 2 * x; };
 	byte kind[256]; // 2 white, 1 light grey, 0 anything else
-	int black = -1;
+	int black = -1, white = -1;
 	for (int i = 0; i < 256; i++) {
 		const byte r = pal[i * 3], g = pal[i * 3 + 1], b = pal[i * 3 + 2];
 		kind[i] = r >= 250 && g >= 250 && b >= 250 ? 2 : (r >= 140 && ABS(r - g) < 12 && ABS(r - b) < 12) ? 1 : 0;
 		if (black < 0 && r < 8 && g < 8 && b < 8)
 			black = i;
+		if (white < 0 && kind[i] == 2)
+			white = i;
 	}
 	if (black < 0)
 		return;
@@ -645,72 +648,93 @@ void DosGamesEngine::drawWagonS(byte *scr) {
 		if (key != _wagonKey) {
 			_wagonKey = key;
 			_wagonS.clear();
-			// centred between the seams: as even a gap at each side of each
-			// of its rows, and above and below it, as the panel allows
-			int inkL = 7, inkR = 0;
+			_wagonWhite.clear();
+			// its size: as much of the canvas's height as the S has on the
+			// wagon seen side on (7 of 18 rows); as wide as that, or as much
+			// as the panel has room for (a panel seen at an angle: taller and
+			// thinner); centred between the seams - as even a gap at each
+			// side of each of its rows, and above and below it, as the panel
+			// allows
+			int inkL = 7, inkR = 0, inkT = 7, inkB = 0;
 			for (int r = 0; r < 8; r++)
 				for (int b = 0; b < 8; b++)
 					if (glyph[r] & (0x80 >> b)) {
-						inkL = MIN(inkL, b);
-						inkR = MAX(inkR, b);
+						inkL = MIN(inkL, b); inkR = MAX(inkR, b);
+						inkT = MIN(inkT, r); inkB = MAX(inkB, r);
 					}
+			const int iw = inkR - inkL + 1, ih = inkB - inkT + 1;
+			int coverT = kH, coverB = 0;
+			for (int k = 0; k < runLen; k++) {
+				coverT = MIN(coverT, blobs[run[k]].y0);
+				coverB = MAX(coverB, blobs[run[k]].y1);
+			}
+			const int h = MAX(ih, ((coverB - coverT + 1) * 7 + 9) / 18);
 			const Blob &p = blobs[run[1]]; // (the second panel: the first behind the front)
 			const int id = run[1] + 1;
 			auto canvas = [&](int x, int y) { return x >= 0 && y >= 0 && x < kW && y < kH && label[y * kW + x] == id; };
-			for (int sc = 2; sc >= 1 && _wagonS.empty(); sc--) {
-				int best = 1 << 30;
+			Common::Array<Common::Point> shape;
+			for (int w = (h * iw + ih / 2) / ih; w >= 3 && _wagonS.empty(); w--) {
+				shape.clear();
+				for (int y = 0; y < h; y++)
+					for (int x = 0; x < w; x++)
+						if (glyph[inkT + y * ih / h] & (0x80 >> (inkL + x * iw / w)))
+							shape.push_back(Common::Point(x, y));
+				int best = 1 << 30, bx = 0, by = 0;
 				for (int cy = p.y0; cy <= p.y1; cy++)
 					for (int cx = p.x0; cx <= p.x1; cx++) {
 						bool fits = true;
-						for (int r = 0; r < 8 && fits; r++)
-							for (int b = 0; b < 8 && fits; b++)
-								if (glyph[r] & (0x80 >> b))
-									for (int dy = 0; dy < sc && fits; dy++)
-										for (int dx = 0; dx < sc && fits; dx++)
-											fits = canvas(cx + b * sc + dx, cy + r * sc + dy);
+						for (uint i = 0; i < shape.size() && fits; i++)
+							fits = canvas(cx + shape[i].x, cy + shape[i].y);
 						if (!fits)
 							continue;
 						int score = 0, used = 0;
-						for (int r = 0; r < 8; r++) {
-							if (!glyph[r])
-								continue;
-							int l = 7, rr = 0;
-							for (int b = 0; b < 8; b++)
-								if (glyph[r] & (0x80 >> b)) {
-									l = MIN(l, b);
-									rr = MAX(rr, b);
+						for (int y = 0; y < h; y++) {
+							int l = w, r = -1;
+							for (uint i = 0; i < shape.size(); i++)
+								if (shape[i].y == y) {
+									l = MIN<int>(l, shape[i].x);
+									r = MAX<int>(r, shape[i].x);
 								}
-							for (int dy = 0; dy < sc; dy++) {
-								const int y = cy + r * sc + dy, xl = cx + l * sc, xr = cx + rr * sc + sc - 1;
-								int L = xl, R = xr;
-								while (canvas(L - 1, y))
-									L--;
-								while (canvas(R + 1, y))
-									R++;
-								score += ABS((xl - L) - (R - xr));
-								used++;
-							}
+							if (r < 0)
+								continue;
+							int L = cx + l, R = cx + r;
+							while (canvas(L - 1, cy + y))
+								L--;
+							while (canvas(R + 1, cy + y))
+								R++;
+							score += ABS((cx + l - L) - (R - cx - r));
+							used++;
 						}
-						const int mx = cx + (inkL + inkR) * sc / 2, top = cy, bottom = cy + 8 * sc - 1;
-						int T = top, B = bottom;
+						const int mx = cx + w / 2;
+						int T = cy, B = cy + h - 1;
 						while (canvas(mx, T - 1))
 							T--;
 						while (canvas(mx, B + 1))
 							B++;
-						score += ABS((top - T) - (B - bottom)) * used / 2;
-						if (score >= best)
-							continue;
-						best = score;
-						_wagonS.clear();
-						for (int r = 0; r < 8; r++)
-							for (int b = 0; b < 8; b++)
-								if (glyph[r] & (0x80 >> b))
-									for (int dy = 0; dy < sc; dy++)
-										for (int dx = 0; dx < sc; dx++)
-											_wagonS.push_back(Common::Point(cx + b * sc + dx, cy + r * sc + dy));
+						score += ABS((cy - T) - (B - (cy + h - 1))) * used / 2;
+						if (score < best) {
+							best = score;
+							bx = cx;
+							by = cy;
+						}
 					}
+				if (best == 1 << 30)
+					continue;
+				// the canvas behind it whitened (a painted letter, plain over
+				// the shading), then the letter
+				for (int y = by - 1; y <= by + h; y++)
+					for (int x = bx - 1; x <= bx + w; x++)
+						if (canvas(x, y))
+							_wagonWhite.push_back(Common::Point(x, y));
+				for (uint i = 0; i < shape.size(); i++)
+					_wagonS.push_back(Common::Point(bx + shape[i].x, by + shape[i].y));
 			}
 		}
+		if (white >= 0)
+			for (const Common::Point &c : _wagonWhite) {
+				byte *q = at(c.x, c.y);
+				q[0] = q[1] = q[pitch] = q[pitch + 1] = white;
+			}
 		for (const Common::Point &c : _wagonS) {
 			byte *p = at(c.x, c.y);
 			p[0] = p[1] = p[pitch] = p[pitch + 1] = black;
@@ -719,6 +743,7 @@ void DosGamesEngine::drawWagonS(byte *scr) {
 	}
 	_wagonKey = Common::Rect();
 	_wagonS.clear();
+	_wagonWhite.clear();
 }
 
 void DosGamesEngine::presentPad() {

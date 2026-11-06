@@ -93,6 +93,7 @@ private:
 	Common::Array<byte> _shown;
 	Common::Rect _wagonKey;            // the canvas the S was placed on
 	Common::Array<Common::Point> _wagonS; // its pixels (320 x 200)
+	Common::Array<Common::Point> _wagonWhite; // the canvas whitened behind it
 	void quickSave();
 	void quickLoad();
 
