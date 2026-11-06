@@ -58,6 +58,7 @@ public:
 
 	static bool portraitScreen();
 	static Aim configAim();
+	static bool keysLeft();
 
 	void setup(int w, int h, bool portrait, const Graphics::PixelFormat &format);
 	void setHunting(bool hunting);

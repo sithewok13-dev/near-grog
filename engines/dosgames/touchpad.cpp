@@ -36,7 +36,7 @@ const int kGap = 10;
 uint32 holdMillis(int action) {
 	return action == TouchPad::kTray ? 500 : 300;
 }
-const uint32 kFlashMillis = 150; // (a touched button shows blue at least this long)
+const uint32 kFlashMillis = 250; // (a touched button shows blue at least this long)
 
 // PC scan codes
 enum {
@@ -67,6 +67,11 @@ bool TouchPad::portraitScreen() {
 	if (o == "landscape")
 		return false;
 	return g_system->getOverlayHeight() > g_system->getOverlayWidth();
+}
+
+// Landscape: the keys at the left of the game (the tray), else the right
+bool TouchPad::keysLeft() {
+	return ConfMan.hasKey("neargrog_keys_left") && ConfMan.getBool("neargrog_keys_left");
 }
 
 TouchPad::Aim TouchPad::configAim() {
@@ -140,8 +145,10 @@ void TouchPad::layout() {
 		}
 		const int gx = side + col + 16 + (_w - 2 * side - 2 * col - 32 - gw) / 2;
 		_gameBox = Common::Rect(gx, (_h - gh) / 2, gx + gw, (_h - gh) / 2 + gh);
-		_padBox = Common::Rect(_w - side - col, 12, _w - side, _h - NearGrog::kHomeBar);
-		_padBox2 = Common::Rect(side, 12, side + col, _h - NearGrog::kHomeBar);
+		const Common::Rect right(_w - side - col, 12, _w - side, _h - NearGrog::kHomeBar);
+		const Common::Rect left(side, 12, side + col, _h - NearGrog::kHomeBar);
+		_padBox = keysLeft() ? left : right;   // Save, Load, Menu, Fire, Done
+		_padBox2 = keysLeft() ? right : left;  // the stick or the classic keys
 	} else {
 		// The game at the left, the full height; the keys in the rest
 		const int side = NearGrog::kLandscapeSide;
@@ -150,8 +157,13 @@ void TouchPad::layout() {
 			gw = _w - 2 * side - 16 - 340;
 			gh = gw * 3 / 4;
 		}
-		_gameBox = Common::Rect(side, (_h - gh) / 2, side + gw, (_h - gh) / 2 + gh);
-		_padBox = Common::Rect(_gameBox.right + 16, 12, _w - side, _h - NearGrog::kHomeBar);
+		if (keysLeft()) {
+			_gameBox = Common::Rect(_w - side - gw, (_h - gh) / 2, _w - side, (_h - gh) / 2 + gh);
+			_padBox = Common::Rect(side, 12, _gameBox.left - 16, _h - NearGrog::kHomeBar);
+		} else {
+			_gameBox = Common::Rect(side, (_h - gh) / 2, side + gw, (_h - gh) / 2 + gh);
+			_padBox = Common::Rect(_gameBox.right + 16, 12, _w - side, _h - NearGrog::kHomeBar);
+		}
 	}
 	_mapX.resize(_gameBox.width());
 	for (int x = 0; x < _gameBox.width(); x++)

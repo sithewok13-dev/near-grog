@@ -707,6 +707,15 @@ bool iOS7_fetchEvent(InternalEvent *event) {
 	// Near-Grog: the touch map (a ring where each finger lands)
 	for (UITouch *t in touches)
 		iOS7_showTouchDot([t locationInView:self]);
+	// Near-Grog: a light tap felt for each touch, where a game's layout asks
+	// (The Oregon Trail's keys), so a press is known without looking
+#if TARGET_OS_IOS
+	if (ConfMan.hasKey("neargrog_haptics") && ConfMan.getBool("neargrog_haptics") && [self isInGame]) {
+		UIImpactFeedbackGenerator *haptic = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+		[haptic impactOccurred];
+		[haptic release];
+	}
+#endif
 #if TARGET_OS_IOS
 	UITouch *touch = [touches anyObject];
 	touchesBegan = [touch locationInView:self];
