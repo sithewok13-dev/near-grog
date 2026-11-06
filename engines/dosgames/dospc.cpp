@@ -419,6 +419,9 @@ void DosPC::int10() {
 				_dac[i * 3] = _dac[i * 3 + 1] = _dac[i * 3 + 2] = (i - 16) * 4;
 			if (!(al & 0x80))
 				memset(&_mem[0xA0000], 0, 64000);
+		} else if (isCga()) {
+			if (!(al & 0x80))
+				memset(&_mem[0xB8000], 0, 0x4000);
 		} else if (!(al & 0x80)) {
 			scrollText(0, 24, 0, 7);
 		}
@@ -1420,6 +1423,19 @@ void DosPC::render(byte *dst, int pitch) {
 			byte *o = dst + y * 2 * pitch;
 			for (int x = 0; x < 320; x++)
 				o[2 * x] = o[2 * x + 1] = src[y * 320 + x];
+			memcpy(o + pitch, o, kScreenW);
+		}
+	} else if (isCga()) {
+		// CGA graphics (The Oregon Trail's map): 640 x 200 in two colours
+		// (mode 6) or 320 x 200 in four (4 and 5, the BIOS's cyan / magenta /
+		// white set); even lines at B800:0000, odd ones at B800:2000
+		static const byte kFour[4] = { 0, 11, 13, 15 };
+		for (int y = 0; y < 200; y++) {
+			const byte *src = &_mem[0xB8000 + (y & 1) * 0x2000 + (y >> 1) * 80];
+			byte *o = dst + y * 2 * pitch;
+			for (int x = 0; x < kScreenW; x++)
+				o[x] = _videoMode == 6 ? ((src[x >> 3] & (0x80 >> (x & 7))) ? 15 : 0)
+					: kFour[(src[x >> 3] >> (6 - ((x >> 1) & 3) * 2)) & 3];
 			memcpy(o + pitch, o, kScreenW);
 		}
 	} else {

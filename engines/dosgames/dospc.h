@@ -195,6 +195,7 @@ private:
 	static bool wildcardMatch(const Common::String &pattern, const Common::String &name);
 
 	bool isText() const { return _videoMode <= 3 || _videoMode == 7; }
+	bool isCga() const { return _videoMode >= 4 && _videoMode <= 6; }
 	int textCols() const { return _videoMode <= 1 ? 40 : 80; }
 	bool raiseIrq(int irq);
 	void scrollText(int top, int bottom, int lines, uint8 attr);
