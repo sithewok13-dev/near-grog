@@ -372,7 +372,25 @@ void DosGamesEngine::runPad() {
 	case TouchPad::kQuickLoad: quickLoad(); break;
 	default: break;
 	}
-	_pad->setHunting(oregonHunting());
+	const bool hunting = oregonHunting();
+	_pad->setHunting(hunting);
+	if (hunting) {
+		// the hunter: his red shirt (nothing else on the field is that red)
+		const byte *pal = _pc->palette();
+		bool shirt[256];
+		for (int i = 0; i < 256; i++)
+			shirt[i] = pal[i * 3] >= 240 && pal[i * 3 + 1] >= 16 && pal[i * 3 + 1] <= 48 && pal[i * 3 + 2] >= 16 && pal[i * 3 + 2] <= 48;
+		const byte *scr = (const byte *)_screen.getPixels();
+		int n = 0, sx = 0, sy = 0;
+		for (int y = 0; y < DosPC::kScreenH; y++)
+			for (int x = 0; x < DosPC::kScreenW; x++)
+				if (shirt[scr[y * _screen.pitch + x]]) {
+					n++;
+					sx += x;
+					sy += y;
+				}
+		_pad->setHunter(n > 20 ? Common::Point(sx / n, sy / n) : Common::Point(), n > 20);
+	}
 	TouchPad::Key k;
 	while (_pad->takeKey(k)) {
 		if (k.down)
@@ -424,7 +442,7 @@ void DosGamesEngine::openMainMenuDialog() {
 			PauseToken pause = pauseEngine();
 			Common::Array<Common::String> labels;
 			Common::Array<uint32> cmds;
-			labels.push_back(TouchPad::configAim() == TouchPad::kAimTurn ? "Hunting aim: Turn (arrows)" : "Hunting aim: Point (8 ways)");
+			labels.push_back(Common::String::format("Hunting aim: %s", TouchPad::aimName(TouchPad::configAim())));
 			cmds.push_back(kCmdAim);
 			labels.push_back("ScummVM menu");
 			cmds.push_back(kCmdScummVM);
@@ -434,7 +452,7 @@ void DosGamesEngine::openMainMenuDialog() {
 			cmd = tray.runModal();
 		}
 		if (cmd == (uint32)kCmdAim) {
-			ConfMan.set("neargrog_hunt_aim", TouchPad::configAim() == TouchPad::kAimTurn ? "point" : "turn");
+			TouchPad::setConfigAim((TouchPad::Aim)((TouchPad::configAim() + 1) % 4));
 			ConfMan.flushToDisk();
 			_pad->refresh();
 			presentPad();

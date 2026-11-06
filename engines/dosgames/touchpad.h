@@ -44,7 +44,7 @@ namespace DosGames {
 class TouchPad {
 public:
 	enum Action { kNone, kSaveDialog, kLoadDialog, kQuickSave, kQuickLoad, kTray, kKeyboard };
-	enum Aim { kAimTurn, kAimPoint };
+	enum Aim { kAimTap, kAimStick, kAimTurn, kAimPoint };
 
 	/** A key for the PC: down or up. */
 	struct Key {
@@ -58,12 +58,16 @@ public:
 
 	static bool portraitScreen();
 	static Aim configAim();
+	static const char *aimName(Aim a);
+	static void setConfigAim(Aim a);
 
 	void setup(int w, int h, bool portrait, const Graphics::PixelFormat &format);
 	void setHunting(bool hunting);
 	/** After a change in the tray (the hunting aim). */
 	void refresh();
 	void setPalette(const byte *rgb);
+	/** While hunting: where the hunter stands (the game's 640 x 400), if he's on the screen. */
+	void setHunter(Common::Point p, bool seen);
 	/** Draws what changed (the game's screen: 640 x 400 palette indexes); the part to show, empty if none. */
 	Common::Rect draw(const byte *screen);
 	const Graphics::ManagedSurface &output() const { return _out; }
@@ -125,6 +129,32 @@ private:
 	void keyDown(const Button &b);
 	void keyUp(const Button &b);
 	void releaseKey();
+	void tapKey(uint8 scan, uint8 ascii);
+	void pushKey(uint8 scan, uint8 ascii, bool down);
+	uint32 _lastEmit;
+
+	// Tap and Stick: the hunter steered (8 ways), walking while wanted
+	Common::Point _hunter;
+	bool _hunterSeen;
+	uint32 _movedFrame, _walkWait;
+	bool _wantWalk;
+	int _wantDir, _sentDir;  // 0 = right, then clockwise (-1: none)
+	void steer();
+	int dirTo(Common::Point phone) const;
+	Common::Point toPhone(Common::Point game) const;
+	// the stick
+	Common::Point _stickCentre;
+	int _stickR;
+	bool _stickDown, _stickMoved;
+	Common::Point _knob;
+	uint32 _stickTime;
+	void stickTo(Common::Point p);
+	// the field (Tap)
+	bool _fieldDown, _fieldWalk;
+	Common::Point _fieldPoint;
+	uint32 _fieldTime;
+	void fire(int dir);
+	void drawStick();
 
 	uint32 rgb(byte r, byte g, byte b) const { return _format.RGBToColor(r, g, b); }
 	const Graphics::Font *font(int size);

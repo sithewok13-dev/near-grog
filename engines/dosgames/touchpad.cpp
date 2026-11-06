@@ -43,7 +43,9 @@ enum {
 } // End of anonymous namespace
 
 TouchPad::TouchPad() : _w(0), _h(0), _portrait(false), _hunting(false), _gameDirty(true), _padDirty(true), _allDirty(true),
-		_pressed(-1), _pressTime(0), _holdFired(false), _keyHeld(false), _heldFrames(0), _frame(0), _downFrame(0) {
+		_pressed(-1), _pressTime(0), _holdFired(false), _keyHeld(false), _heldFrames(0), _frame(0), _downFrame(0), _lastEmit(0),
+		_hunterSeen(false), _movedFrame(0), _walkWait(0), _wantWalk(false), _wantDir(-1), _sentDir(-1),
+		_stickR(0), _stickDown(false), _stickMoved(false), _stickTime(0), _fieldDown(false), _fieldWalk(false), _fieldTime(0) {
 	for (int i = 0; i < 256; i++)
 		_pal[i] = 0;
 }
@@ -64,7 +66,22 @@ bool TouchPad::portraitScreen() {
 }
 
 TouchPad::Aim TouchPad::configAim() {
-	return ConfMan.get("neargrog_hunt_aim") == "point" ? kAimPoint : kAimTurn;
+	const Common::String a = ConfMan.get("neargrog_hunt_aim");
+	return a == "point" ? kAimPoint : a == "turn" ? kAimTurn : a == "stick" ? kAimStick : kAimTap;
+}
+
+const char *TouchPad::aimName(Aim a) {
+	switch (a) {
+	case kAimStick: return "Stick";
+	case kAimTurn: return "Turn (arrows)";
+	case kAimPoint: return "Point (8 ways)";
+	default: return "Tap to shoot";
+	}
+}
+
+void TouchPad::setConfigAim(Aim a) {
+	static const char *const kNames[4] = { "tap", "stick", "turn", "point" };
+	ConfMan.set("neargrog_hunt_aim", kNames[a]);
 }
 
 void TouchPad::setup(int w, int h, bool portrait, const Graphics::PixelFormat &format) {
@@ -84,6 +101,9 @@ void TouchPad::setHunting(bool hunting) {
 		return;
 	releaseKey();
 	_hunting = hunting;
+	_wantWalk = _stickDown = _fieldDown = _fieldWalk = false;
+	_wantDir = _sentDir = -1;
+	_hunterSeen = false;
 	layout();
 	_padDirty = true;
 }
@@ -92,6 +112,13 @@ void TouchPad::refresh() {
 	releaseKey();
 	layout();
 	_padDirty = true;
+}
+
+void TouchPad::setHunter(Common::Point p, bool seen) {
+	if (seen && _hunterSeen && p != _hunter)
+		_movedFrame = _frame;
+	_hunter = p;
+	_hunterSeen = seen;
 }
 
 void TouchPad::setPalette(const byte *rgbs) {
@@ -176,10 +203,41 @@ void TouchPad::keypad(const Common::Rect &r) {
 void TouchPad::huntPad(const Common::Rect &r) {
 	const int bh = _portrait ? 84 : 64;
 	const int hw = (r.width() - kGap) / 2;
+	_stickR = 0;
+	const Aim aim = configAim();
+	if (aim == kAimTap || aim == kAimStick) {
+		// Done along the foot; Fire (and the stick)
+		addButton(Common::Rect(r.left, r.bottom - bh, r.right, r.bottom), "Done", kBlue, -1, kScanEsc, 27);
+		const Common::Rect m(r.left, r.top, r.right, r.bottom - bh - kGap);
+		if (aim == kAimTap) {
+			// the field itself: a tap shoots there, a hold walks there
+			const int s = MIN<int>(m.width(), m.height()) * 2 / 5;
+			const int x = (m.left + m.right - s) / 2, y = (m.top + m.bottom - s) / 2;
+			addButton(Common::Rect(x, y, x + s, y + s), "Fire", kRed, -1, kScanSpace, ' ');
+			_buttons.back().round = true;
+		} else if (_portrait) {
+			// the stick under the left thumb, Fire under the right
+			_stickR = MIN<int>(m.width() * 27 / 100, m.height() * 2 / 5);
+			_stickCentre = Common::Point(m.left + _stickR + 8, (m.top + m.bottom) / 2 - 20);
+			const int f = MIN<int>(m.right - (_stickCentre.x + _stickR) - 2 * kGap, _stickR * 6 / 5);
+			const int fx = (_stickCentre.x + _stickR + m.right - f) / 2, fy = _stickCentre.y + _stickR / 3 - f / 2;
+			addButton(Common::Rect(fx, fy, fx + f, fy + f), "Fire", kRed, -1, kScanSpace, ' ');
+			_buttons.back().round = true;
+		} else {
+			// the stick above, Fire at its lower right
+			_stickR = MIN<int>(m.width() / 3, m.height() * 2 / 5);
+			_stickCentre = Common::Point(m.left + _stickR + 4, m.top + m.height() * 2 / 5);
+			const int f = MIN<int>(m.right - m.left - 2 * _stickR - kGap, _stickR);
+			addButton(Common::Rect(m.right - f, m.bottom - f, m.right, m.bottom), "Fire", kRed, -1, kScanSpace, ' ');
+			_buttons.back().round = true;
+		}
+		_knob = _stickCentre;
+		return;
+	}
 	addButton(Common::Rect(r.left, r.bottom - bh, r.left + hw, r.bottom), "Walk / Stop", kPlain, -1, kScanEnter, 13);
 	addButton(Common::Rect(r.right - hw, r.bottom - bh, r.right, r.bottom), "Done", kBlue, -1, kScanEsc, 27);
 	const Common::Rect m(r.left, r.top, r.right, r.bottom - bh - kGap);
-	if (configAim() == kAimTurn) {
+	if (aim == kAimTurn) {
 		// The game's arrows turn the rifle a step at a time (held: on round)
 		const int s = MIN<int>((m.width() - 2 * kGap) / 3, m.height());
 		const int x = m.left + (m.width() - 3 * s - 2 * kGap) / 2, y = m.top + (m.height() - s) / 2;
@@ -238,6 +296,8 @@ int TouchPad::buttonAt(Common::Point p) const {
 }
 
 Common::Point TouchPad::buttonCentre(const char *label) const {
+	if (!strcmp(label, "Stick"))
+		return _stickR > 0 ? _stickCentre : Common::Point(-1, -1);
 	for (uint i = 0; i < _buttons.size(); i++)
 		if (_buttons[i].label == label)
 			return Common::Point((_buttons[i].box.left + _buttons[i].box.right) / 2, (_buttons[i].box.top + _buttons[i].box.bottom) / 2);
@@ -274,16 +334,126 @@ void TouchPad::releaseKey() {
 	_pressed = -1;
 }
 
+// One a frame, a key held at least three before it's let go
 bool TouchPad::takeKey(Key &k) {
-	if (_keys.empty() || _keys[0].at > _frame)
+	if (_keys.empty() || _keys[0].at > _frame || _lastEmit == _frame || (!_keys[0].down && _frame < _lastEmit + 3))
 		return false;
 	k = _keys[0];
 	_keys.remove_at(0);
+	_lastEmit = _frame;
 	return true;
+}
+
+void TouchPad::pushKey(uint8 scan, uint8 ascii, bool down) {
+	Key k;
+	k.scan = scan;
+	k.ascii = down ? ascii : 0;
+	k.down = down;
+	k.at = _frame;
+	_keys.push_back(k);
+}
+
+void TouchPad::tapKey(uint8 scan, uint8 ascii) {
+	pushKey(scan, ascii, true);
+	pushKey(scan, ascii, false);
+}
+
+// --- Tap and Stick ---
+
+// The game's keypad, by way: right, then clockwise
+static const uint8 kWayScan[8] = { 0x4D, 0x51, 0x50, 0x4F, 0x4B, 0x47, 0x48, 0x49 };
+
+Common::Point TouchPad::toPhone(Common::Point game) const {
+	return Common::Point(_gameBox.left + game.x * _gameBox.width() / DosPC::kScreenW, _gameBox.top + game.y * _gameBox.height() / DosPC::kScreenH);
+}
+
+// The nearest of the eight ways from the hunter to a point on the phone
+int TouchPad::dirTo(Common::Point phone) const {
+	if (!_hunterSeen)
+		return -1;
+	const Common::Point h = toPhone(_hunter);
+	const int dx = phone.x - h.x, dy = phone.y - h.y;
+	if (dx * dx + dy * dy < 12 * 12)
+		return -1;
+	const float a = atan2f((float)dy, (float)dx);
+	return ((int)floorf(a / ((float)M_PI / 4) + 0.5f) + 8) % 8;
+}
+
+void TouchPad::fire(int dir) {
+	if (dir >= 0 && dir != _sentDir) {
+		tapKey(kWayScan[dir], 0);
+		_sentDir = dir;
+	}
+	tapKey(kScanSpace, ' ');
+}
+
+void TouchPad::stickTo(Common::Point p) {
+	int dx = p.x - _stickCentre.x, dy = p.y - _stickCentre.y;
+	const float d = sqrtf((float)(dx * dx + dy * dy)), lim = _stickR * 0.62f;
+	if (d > lim) {
+		dx = (int)(dx * lim / d);
+		dy = (int)(dy * lim / d);
+	}
+	_knob = Common::Point(_stickCentre.x + dx, _stickCentre.y + dy);
+	if (d > _stickR * 0.2f) {
+		_stickMoved = true;
+		_wantDir = ((int)floorf(atan2f((float)dy, (float)dx) / ((float)M_PI / 4) + 0.5f) + 8) % 8;
+	} else {
+		_wantDir = -1;
+	}
+	_wantWalk = d > _stickR * 0.45f; // (past the ring)
+	_padDirty = true;
+}
+
+// Each frame: the rifle turned the way wanted, the walking started or
+// stopped - walking is the game's Enter, on and off, and he stops by
+// himself at a tree or the edge, so it's judged by whether he's moving
+void TouchPad::steer() {
+	const Aim aim = configAim();
+	if (!_hunting || (aim != kAimTap && aim != kAimStick))
+		return;
+	if (aim == kAimTap) {
+		if (_fieldDown && !_fieldWalk && g_system->getMillis() - _fieldTime >= 250)
+			_fieldWalk = true; // a hold: walk there
+		_wantWalk = _fieldDown && _fieldWalk;
+		if (_wantWalk) {
+			const int d = dirTo(_fieldPoint);
+			if (d >= 0)
+				_wantDir = d;
+			else
+				_wantWalk = false; // (there)
+		}
+	}
+	if (_wantDir >= 0 && _wantDir != _sentDir && _keys.empty()) {
+		tapKey(kWayScan[_wantDir], 0);
+		_sentDir = _wantDir;
+	}
+	const bool moving = _hunterSeen && _frame - _movedFrame <= 4;
+	if (_frame >= _walkWait && _keys.empty() && _wantWalk != moving) {
+		tapKey(kScanEnter, 13);
+		_walkWait = _frame + 15;
+	}
 }
 
 TouchPad::Action TouchPad::press(Common::Point p) {
 	releaseKey();
+	if (_hunting && _stickR > 0) {
+		const int dx = p.x - _stickCentre.x, dy = p.y - _stickCentre.y;
+		if (dx * dx + dy * dy <= (_stickR + 20) * (_stickR + 20)) {
+			_stickDown = true;
+			_stickMoved = false;
+			_stickTime = g_system->getMillis();
+			stickTo(p);
+			return kNone;
+		}
+	}
+	if (_hunting && configAim() == kAimTap && _gameBox.contains(p)) {
+		_fieldDown = true;
+		_fieldWalk = false;
+		_fieldPoint = p;
+		_fieldTime = g_system->getMillis();
+		return kNone;
+	}
 	const int i = buttonAt(p);
 	if (i < 0)
 		return kNone;
@@ -298,9 +468,33 @@ TouchPad::Action TouchPad::press(Common::Point p) {
 }
 
 void TouchPad::move(Common::Point p) {
+	if (_stickDown)
+		stickTo(p);
+	if (_fieldDown)
+		_fieldPoint = p;
 }
 
 TouchPad::Action TouchPad::release(Common::Point p) {
+	if (_stickDown) {
+		// let go: he stops (a quick tap on the stick, no push: Fire)
+		_stickDown = false;
+		_wantWalk = false;
+		_wantDir = -1;
+		if (!_stickMoved && g_system->getMillis() - _stickTime < 250)
+			fire(-1);
+		_knob = _stickCentre;
+		_padDirty = true;
+		return kNone;
+	}
+	if (_fieldDown) {
+		_fieldDown = false;
+		_wantWalk = false;
+		_wantDir = -1;
+		if (!_fieldWalk)
+			fire(dirTo(p)); // a tap: turn that way and shoot
+		_fieldWalk = false;
+		return kNone;
+	}
 	if (_pressed < 0)
 		return kNone;
 	const Button b = _buttons[_pressed];
@@ -319,6 +513,7 @@ TouchPad::Action TouchPad::release(Common::Point p) {
 
 TouchPad::Action TouchPad::tick() {
 	_frame++;
+	steer();
 	if (_pressed < 0)
 		return kNone;
 	const Button &b = _buttons[_pressed];
@@ -533,6 +728,33 @@ void TouchPad::drawPad() {
 		if (down && !_holdFired && (b.action == kSaveDialog || b.action == kLoadDialog))
 			drawHoldRing(b.box, radius, MIN(1.0f, (g_system->getMillis() - _pressTime) / (float)kHoldMillis));
 	}
+	if (_hunting && _stickR > 0)
+		drawStick();
+	if (_hunting && configAim() == kAimTap) {
+		// how it goes, under Fire
+		const Graphics::Font *f = font(_portrait ? 20 : 16);
+		const int fire = buttonCentre("Fire").y + MIN(_padBox.width(), _padBox.height()) / 5 + 24;
+		if (f) {
+			f->drawString(&_out, "Tap the field to shoot", _padBox.left, fire, _padBox.width(), rgb(150, 150, 160), Graphics::kTextAlignCenter);
+			f->drawString(&_out, "Hold to walk there", _padBox.left, fire + f->getFontHeight() + 6, _padBox.width(), rgb(150, 150, 160), Graphics::kTextAlignCenter);
+		}
+	}
+}
+
+// The stick: its base, the walking ring, the eight ways, the knob
+void TouchPad::drawStick() {
+	const int R = _stickR;
+	const Common::Point c = _stickCentre;
+	roundRect(Common::Rect(c.x - R, c.y - R, c.x + R, c.y + R), R, rgb(28, 28, 34), rgb(200, 200, 210));
+	const int r2 = (int)(R * 0.45f);
+	roundRect(Common::Rect(c.x - r2, c.y - r2, c.x + r2, c.y + r2), r2, rgb(28, 28, 34), rgb(80, 80, 92));
+	for (int k = 0; k < 8; k++) {
+		const float a = k * (float)M_PI / 4;
+		arrow(c.x + cosf(a) * R * 0.84f, c.y + sinf(a) * R * 0.84f, R * 0.09f, a,
+			k == _wantDir ? rgb(90, 150, 230) : rgb(150, 150, 160));
+	}
+	const int kr = (int)(R * 0.3f);
+	roundRect(Common::Rect(_knob.x - kr, _knob.y - kr, _knob.x + kr, _knob.y + kr), kr, _stickDown ? rgb(90, 150, 230) : rgb(60, 120, 200), rgb(200, 200, 210));
 }
 
 void TouchPad::drawGame(const byte *screen) {
