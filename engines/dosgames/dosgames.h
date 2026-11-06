@@ -82,6 +82,7 @@ private:
 	uint32 _padTicks, _instructionsWait;
 	void runPad();
 	void presentPad();
+	void drawEdition();
 	void quickSave();
 	void quickLoad();
 

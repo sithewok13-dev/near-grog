@@ -99,6 +99,7 @@
 #endif
 
 #include "gui/dump-all-dialogs.h"
+#include "base/neargrog_standalone.h" // Near-Grog
 
 static bool launcherDialog() {
 
@@ -106,6 +107,11 @@ static bool launcherDialog() {
 	// mode and the others (like bootparam etc.) should not
 	// blindly be passed to the first game launched from the launcher.
 	ConfMan.getDomain(Common::ConfigManager::kTransientDomain)->clear();
+
+#ifdef NEARGROG_STANDALONE
+	// Near-Grog's standalone app: its game, no launcher
+	return NearGrog::standaloneStart();
+#endif
 
 	// If the backend does not allow quitting, loop on the launcher until a game is started
 	bool noQuit = g_system->hasFeature(OSystem::kFeatureNoQuit);

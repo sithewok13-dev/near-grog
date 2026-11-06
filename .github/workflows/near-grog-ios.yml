@@ -102,3 +102,91 @@ jobs:
           Includes every ScummVM engine, among them Grim Fandango, Escape from Monkey Island and The Fool's Errand (Mac).
 
           Install: sideload \`$APP_NAME-ios.ipa\` (for example with Feather). Bring your own game files."
+
+  # The standalone app: The Oregon Trail (Susy Edition) - only the DOS games
+  # engine, no launcher (base/neargrog_standalone.h); it opens straight into
+  # the game, whose files the player copies into its folder in Files.
+  oregon:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      SA_BUNDLE_ID: io.github.sithewok13.oregontrail.susy
+      SA_APP_NAME: Oregon Trail
+      SA_IPA: Oregon-Trail-Susy-ios.ipa
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download ScummVM's prebuilt iOS libraries
+        run: |
+          curl -fL -o libs.zip "$LIBS_URL"
+          unzip -q libs.zip
+
+      - name: Build create_project
+        run: |
+          cd devtools/create_project/xcode
+          xcodebuild -quiet
+
+      - name: Make this build the standalone
+        run: printf '#define NEARGROG_STANDALONE 1\n' >> base/neargrog_build.h
+
+      - name: Generate the Xcode project
+        run: |
+          ./devtools/create_project/xcode/build/Release/create_project . --xcode \
+            --disable-all-engines --enable-engine=dosgames \
+            --ios --use-xcframework --enable-faad --enable-gif --enable-mikmod \
+            --enable-vpx --enable-mpc --enable-a52 --disable-taskbar --disable-tts
+
+      - name: Build cache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ios-oregon
+          max-size: 500M
+          create-symlink: true
+
+      - name: Build the app
+        run: |
+          set -o pipefail
+          xcodebuild CC=clang CPLUSPLUS=clang++ LD=clang LDPLUSPLUS=clang++ build \
+            -project scummvm.xcodeproj -scheme ScummVM-iOS -configuration Release \
+            -sdk iphoneos -derivedDataPath build/dd \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            | awk '$1 !~ /^(export|cd|clang|clang\+\+)/'
+
+      - name: Package the IPA
+        run: |
+          APP=$(find build/dd/Build/Products -maxdepth 2 -name '*.app' -type d | head -1)
+          test -n "$APP" || { echo "No .app was built"; exit 1; }
+          PLIST="$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $SA_BUNDLE_ID" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName $SA_APP_NAME" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleDisplayName" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $SA_APP_NAME" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GITHUB_RUN_NUMBER" "$PLIST"
+          mkdir -p ipa/Payload
+          cp -R "$APP" ipa/Payload/
+          (cd ipa && zip -qry "../$SA_IPA" Payload)
+          ls -lh "$SA_IPA"
+
+      - name: Keep the IPA as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Oregon-Trail-Susy-ios
+          path: ${{ env.SA_IPA }}
+
+      - name: Publish to oregon-latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete oregon-latest --cleanup-tag --yes 2>/dev/null || true
+          gh release create oregon-latest "$SA_IPA" \
+            --prerelease --latest=false --target "$GITHUB_SHA" \
+            --title "The Oregon Trail, Susy Edition, for iOS (latest test build)" \
+            --notes "Test build from commit ${GITHUB_SHA::7}. It may be broken or untested.
+
+          A standalone app: it opens straight into The Oregon Trail (MECC's 1990 DOS release). The game's files are not included - copy them (OREGON.EXE and the rest, or their zip) into Files > On My iPhone > Oregon Trail.
+
+          Install: sideload \`$SA_IPA\` (for example with Feather)."

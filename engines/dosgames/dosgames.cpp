@@ -485,10 +485,55 @@ void DosGamesEngine::runPad() {
 	}
 }
 
+// Near-Grog's standalone app (base/neargrog_standalone.h): its edition's
+// name under "Version 2.1" on MECC's title, in the game's own letters - read
+// from its font in memory (each letter's eight rows 256 bytes apart), once
+// they're found to draw "Version" just as it's on the screen
+void DosGamesEngine::drawEdition() {
+	const Common::String edition = ConfMan.get("neargrog_edition");
+	if (edition.empty())
+		return;
+	const uint32 kFont = 0x46606;
+	const byte *mem = _pc->memory();
+	byte *scr = (byte *)_screen.getPixels();
+	const int pitch = _screen.pitch;
+	const byte *pal = _pc->palette();
+	// (the title's 320 x 200, doubled)
+	auto at = [&](int x, int y) { return scr + 2 * y * pitch + 2 * x; };
+	auto dark = [&](int x, int y) { const byte *c = pal + *at(x, y) * 3; return c[0] + c[1] + c[2] < 100; };
+	static const char kWord[] = "Version";
+	int ink = -1;
+	for (int i = 0; kWord[i]; i++)
+		for (int r = 0; r < 8; r++) {
+			const byte bits = mem[kFont + r * 256 + (byte)kWord[i]];
+			for (int k = 0; k < 8; k++) {
+				const bool on = bits & (0x80 >> k);
+				if (on != dark(116 + i * 8 + k, 41 + r))
+					return; // (not the title, or not this font)
+				if (on && ink < 0)
+					ink = *at(116 + i * 8 + k, 41 + r);
+			}
+		}
+	if (ink < 0)
+		return;
+	// a line under it, centred as the title's lines are
+	const int x0 = 160 - (int)edition.size() * 4, y0 = 52;
+	for (uint i = 0; i < edition.size(); i++)
+		for (int r = 0; r < 8; r++) {
+			const byte bits = mem[kFont + r * 256 + (byte)edition[i]];
+			for (int k = 0; k < 8; k++)
+				if (bits & (0x80 >> k)) {
+					byte *p = at(x0 + i * 8 + k, y0 + r);
+					p[0] = p[1] = p[pitch] = p[pitch + 1] = ink;
+				}
+		}
+}
+
 void DosGamesEngine::presentPad() {
 	if (_pc->paletteChanged())
 		_pad->setPalette(_pc->palette());
 	_pc->render((byte *)_screen.getPixels(), _screen.pitch);
+	drawEdition();
 	const Common::Rect r = _pad->draw((const byte *)_screen.getPixels());
 	if (r.isEmpty())
 		return;
