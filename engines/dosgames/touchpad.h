@@ -44,7 +44,7 @@ namespace DosGames {
 class TouchPad {
 public:
 	enum Action { kNone, kSaveDialog, kLoadDialog, kQuickSave, kQuickLoad, kTray, kKeyboard, kGameMenu };
-	enum Aim { kAimTap, kAimStick, kAimTurn, kAimPoint };
+	enum Aim { kAimTap, kAimStick, kAimTurn, kAimPoint, kAimClassic };
 
 	/** A key for the PC: down or up. */
 	struct Key {
@@ -58,8 +58,6 @@ public:
 
 	static bool portraitScreen();
 	static Aim configAim();
-	static const char *aimName(Aim a);
-	static void setConfigAim(Aim a);
 
 	void setup(int w, int h, bool portrait, const Graphics::PixelFormat &format);
 	void setHunting(bool hunting);
@@ -79,6 +77,8 @@ public:
 	Action tick();
 	/** The keys the touches pressed and let go, oldest first. */
 	bool takeKey(Key &k);
+	/** A key pressed and let go for the engine (a screen skipped). */
+	void typeKey(uint8 scan, uint8 ascii) { tapKey(scan, ascii); }
 
 	/** The game's screen on the phone, for tests. */
 	const Common::Rect &gameBox() const { return _gameBox; }
@@ -86,7 +86,7 @@ public:
 
 private:
 	enum Style { kPlain, kBlue, kRed, kSmall };
-	enum Glyph { kNoGlyph, kArrow };
+	enum Glyph { kNoGlyph, kArrow, kTurn };
 	struct Button {
 		Common::Rect box;
 		Common::String label;
@@ -106,7 +106,7 @@ private:
 	Graphics::ManagedSurface _out;
 	Common::HashMap<Common::String, Graphics::Font *> _fonts;
 	uint32 _pal[256];
-	Common::Rect _gameBox, _padBox;
+	Common::Rect _gameBox, _padBox, _padBox2;
 	Common::Array<Button> _buttons;
 	Common::Array<int> _mapX, _mapY;
 	Common::Array<byte> _last;
@@ -123,6 +123,8 @@ private:
 	void layout();
 	void keypad(const Common::Rect &r);
 	void huntPad(const Common::Rect &r);
+	void classicKeys(const Common::Rect &r);
+	void relayout();
 	void addButton(const Common::Rect &box, const char *label, Style style, int action, uint8 scan = 0, uint8 ascii = 0);
 	void addArrow(const Common::Rect &box, float angle, uint8 scan, bool repeat);
 	int buttonAt(Common::Point p) const;

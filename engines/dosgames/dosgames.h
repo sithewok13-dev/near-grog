@@ -76,9 +76,10 @@ private:
 	void applyLayout();
 	bool oregonHunting() const;
 	bool oregonNamesScreen() const;
+	bool oregonInstructionsScreen() const;
 	int _namesFrames;   // the names screen seen (or not) this many checks running
 	bool _namesKeyboard; // the keyboard opened for it
-	uint32 _padTicks;
+	uint32 _padTicks, _instructionsWait;
 	void runPad();
 	void presentPad();
 	void quickSave();

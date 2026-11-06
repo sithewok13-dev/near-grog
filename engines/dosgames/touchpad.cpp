@@ -70,22 +70,7 @@ bool TouchPad::portraitScreen() {
 }
 
 TouchPad::Aim TouchPad::configAim() {
-	const Common::String a = ConfMan.get("neargrog_hunt_aim");
-	return a == "point" ? kAimPoint : a == "turn" ? kAimTurn : a == "tap" ? kAimTap : kAimStick;
-}
-
-const char *TouchPad::aimName(Aim a) {
-	switch (a) {
-	case kAimStick: return "Stick";
-	case kAimTurn: return "Turn (arrows)";
-	case kAimPoint: return "Point (8 ways)";
-	default: return "Tap to shoot";
-	}
-}
-
-void TouchPad::setConfigAim(Aim a) {
-	static const char *const kNames[4] = { "tap", "stick", "turn", "point" };
-	ConfMan.set("neargrog_hunt_aim", kNames[a]);
+	return ConfMan.hasKey("neargrog_hunt_classic") && ConfMan.getBool("neargrog_hunt_classic") ? kAimClassic : kAimStick;
 }
 
 void TouchPad::setup(int w, int h, bool portrait, const Graphics::PixelFormat &format) {
@@ -108,14 +93,19 @@ void TouchPad::setHunting(bool hunting) {
 	_wantWalk = _stickDown = _fieldDown = _fieldWalk = false;
 	_wantDir = _sentDir = -1;
 	_hunterSeen = false;
-	layout();
-	_padDirty = true;
+	relayout();
 }
 
 void TouchPad::refresh() {
 	releaseKey();
+	relayout();
+}
+
+// The layout again, from a clear screen (the game may have moved)
+void TouchPad::relayout() {
+	_out.fillRect(Common::Rect(_w, _h), rgb(10, 10, 14));
 	layout();
-	_padDirty = true;
+	_gameDirty = _padDirty = _allDirty = true;
 }
 
 void TouchPad::setHunter(Common::Point p, bool seen) {
@@ -139,6 +129,19 @@ void TouchPad::layout() {
 		const int gh = _w * 3 / 4;
 		_gameBox = Common::Rect(0, NearGrog::kPortraitTop, _w, NearGrog::kPortraitTop + gh);
 		_padBox = Common::Rect(16, _gameBox.bottom + 16, _w - 16, _h - NearGrog::kHomeBar - 12);
+	} else if (_hunting) {
+		// Hunting: the controls at the left, the game in the middle, Fire
+		// (and Save, Load, Menu, Done) at the right - a hand each side
+		const int side = NearGrog::kLandscapeSide, col = 230;
+		int gw = _w - 2 * side - 2 * col - 32, gh = gw * 3 / 4;
+		if (gh > _h) {
+			gh = _h;
+			gw = gh * 4 / 3;
+		}
+		const int gx = side + col + 16 + (_w - 2 * side - 2 * col - 32 - gw) / 2;
+		_gameBox = Common::Rect(gx, (_h - gh) / 2, gx + gw, (_h - gh) / 2 + gh);
+		_padBox = Common::Rect(_w - side - col, 12, _w - side, _h - NearGrog::kHomeBar);
+		_padBox2 = Common::Rect(side, 12, side + col, _h - NearGrog::kHomeBar);
 	} else {
 		// The game at the left, the full height; the keys in the rest
 		const int side = NearGrog::kLandscapeSide;
@@ -157,6 +160,8 @@ void TouchPad::layout() {
 	for (int y = 0; y < _gameBox.height(); y++)
 		_mapY[y] = y * DosPC::kScreenH / _gameBox.height();
 
+	if (_portrait || !_hunting)
+		_padBox2 = Common::Rect();
 	_buttons.clear();
 	_pressed = -1;
 	_flash = -1;
@@ -204,67 +209,82 @@ void TouchPad::keypad(const Common::Rect &r) {
 	addButton(Common::Rect(r.right - hw, y, r.right, y + rh), "Space", kBlue, -1, kScanSpace, ' ');
 }
 
-// Hunting: the rifle's pad and Fire, Walk / Stop and Done
+// Hunting. The stick (pushed: the rifle points that way; past its ring, he
+// walks) or the classic keys - the game's own: arrows turning the rifle, its
+// keypad pointing it, Walk / Stop - and Fire and Done.
+// Landscape: the stick or keys in the left column (_padBox2), Fire and Done
+// under Save, Load, Menu in the right; portrait: all under the game.
 void TouchPad::huntPad(const Common::Rect &r) {
 	const int bh = _portrait ? 84 : 64;
-	const int hw = (r.width() - kGap) / 2;
+	const bool classic = configAim() == kAimClassic;
 	_stickR = 0;
-	const Aim aim = configAim();
-	if (aim == kAimTap || aim == kAimStick) {
-		// Done along the foot; Fire (and the stick)
+	if (!_portrait) {
+		// right: Fire, Done at the foot
 		addButton(Common::Rect(r.left, r.bottom - bh, r.right, r.bottom), "Done", kBlue, -1, kScanEsc, 27);
 		const Common::Rect m(r.left, r.top, r.right, r.bottom - bh - kGap);
-		if (aim == kAimTap) {
-			// the field itself: a tap shoots there, a hold walks there
-			const int s = MIN<int>(m.width(), m.height()) * 2 / 5;
-			const int x = (m.left + m.right - s) / 2, y = (m.top + m.bottom - s) / 2;
-			addButton(Common::Rect(x, y, x + s, y + s), "Fire", kRed, -1, kScanSpace, ' ');
-			_buttons.back().round = true;
-		} else if (_portrait) {
-			// the stick under the left thumb, Fire under the right
-			_stickR = MIN<int>(m.width() * 27 / 100, m.height() * 2 / 5);
-			_stickCentre = Common::Point(m.left + _stickR + 8, (m.top + m.bottom) / 2 - 20);
-			const int f = MIN<int>(m.right - (_stickCentre.x + _stickR) - 2 * kGap, _stickR * 6 / 5);
-			const int fx = (_stickCentre.x + _stickR + m.right - f) / 2, fy = _stickCentre.y + _stickR / 3 - f / 2;
-			addButton(Common::Rect(fx, fy, fx + f, fy + f), "Fire", kRed, -1, kScanSpace, ' ');
-			_buttons.back().round = true;
+		const int f = MIN<int>(m.width(), m.height()) - 10;
+		const int fx = (m.left + m.right - f) / 2, fy = (m.top + m.bottom - f) / 2;
+		addButton(Common::Rect(fx, fy, fx + f, fy + f), "Fire", kRed, -1, kScanSpace, ' ');
+		_buttons.back().round = true;
+		// left: the stick or the keys
+		const Common::Rect &l = _padBox2;
+		if (classic) {
+			classicKeys(l);
 		} else {
-			// the stick above, Fire at its lower right
-			_stickR = MIN<int>(m.width() / 3, m.height() * 2 / 5);
-			_stickCentre = Common::Point(m.left + _stickR + 4, m.top + m.height() * 2 / 5);
-			const int f = MIN<int>(m.right - m.left - 2 * _stickR - kGap, _stickR);
-			addButton(Common::Rect(m.right - f, m.bottom - f, m.right, m.bottom), "Fire", kRed, -1, kScanSpace, ' ');
-			_buttons.back().round = true;
+			_stickR = MIN<int>(l.width(), l.height()) / 2 - 6;
+			_stickCentre = Common::Point((l.left + l.right) / 2, (l.top + l.bottom) / 2);
 		}
 		_knob = _stickCentre;
 		return;
 	}
-	addButton(Common::Rect(r.left, r.bottom - bh, r.left + hw, r.bottom), "Walk / Stop", kPlain, -1, kScanEnter, 13);
-	addButton(Common::Rect(r.right - hw, r.bottom - bh, r.right, r.bottom), "Done", kBlue, -1, kScanEsc, 27);
-	const Common::Rect m(r.left, r.top, r.right, r.bottom - bh - kGap);
-	if (aim == kAimTurn) {
-		// The game's arrows turn the rifle a step at a time (held: on round)
-		const int s = MIN<int>((m.width() - 2 * kGap) / 3, m.height());
-		const int x = m.left + (m.width() - 3 * s - 2 * kGap) / 2, y = m.top + (m.height() - s) / 2;
-		addArrow(Common::Rect(x, y, x + s, y + s), (float)M_PI, kScanLeft, true);
-		addButton(Common::Rect(x + s + kGap, y, x + 2 * s + kGap, y + s), "Fire", kRed, -1, kScanSpace, ' ');
+	if (!classic) {
+		// the stick under the left thumb, Fire under the right, Done below
+		addButton(Common::Rect(r.left, r.bottom - bh, r.right, r.bottom), "Done", kBlue, -1, kScanEsc, 27);
+		const Common::Rect m(r.left, r.top, r.right, r.bottom - bh - kGap);
+		_stickR = MIN<int>(m.width() * 27 / 100, m.height() * 2 / 5);
+		_stickCentre = Common::Point(m.left + _stickR + 8, (m.top + m.bottom) / 2 - 20);
+		const int f = MIN<int>(m.right - (_stickCentre.x + _stickR) - 2 * kGap, _stickR * 6 / 5);
+		const int fx = (_stickCentre.x + _stickR + m.right - f) / 2, fy = _stickCentre.y + _stickR / 3 - f / 2;
+		addButton(Common::Rect(fx, fy, fx + f, fy + f), "Fire", kRed, -1, kScanSpace, ' ');
 		_buttons.back().round = true;
-		addArrow(Common::Rect(x + 2 * (s + kGap), y, x + 3 * s + 2 * kGap, y + s), 0, kScanRight, true);
-	} else {
-		// The game's keypad points it straight: 7 8 9 / 4 6 / 1 2 3, Fire between
-		static const uint8 kScan[9] = { 0x47, 0x48, 0x49, 0x4B, 0, 0x4D, 0x4F, 0x50, 0x51 };
-		static const float kAngle[9] = { -0.75f, -0.5f, -0.25f, 1.0f, 0, 0, 0.75f, 0.5f, 0.25f }; // (times pi)
-		const int s = MIN((m.width() - 2 * kGap) / 3, (m.height() - 2 * kGap) / 3);
-		const int x = m.left + (m.width() - 3 * s - 2 * kGap) / 2, y = m.top + (m.height() - 3 * s - 2 * kGap) / 2;
-		for (int i = 0; i < 9; i++) {
-			const Common::Rect box(x + (i % 3) * (s + kGap), y + (i / 3) * (s + kGap), x + (i % 3) * (s + kGap) + s, y + (i / 3) * (s + kGap) + s);
-			if (i == 4) {
-				addButton(box, "Fire", kRed, -1, kScanSpace, ' ');
-				_buttons.back().round = true;
-			} else {
-				addArrow(box, kAngle[i] * (float)M_PI, kScan[i], false);
-			}
-		}
+		_knob = _stickCentre;
+		return;
+	}
+	// classic: the keys at the left, Fire at the right, Done below
+	addButton(Common::Rect(r.left, r.bottom - bh, r.right, r.bottom), "Done", kBlue, -1, kScanEsc, 27);
+	const Common::Rect m(r.left, r.top, r.right, r.bottom - bh - kGap);
+	const Common::Rect keys(m.left, m.top, m.left + m.width() * 62 / 100, m.bottom);
+	classicKeys(keys);
+	const int f = MIN<int>(m.right - keys.right - 2 * kGap, m.height() / 2);
+	const int fx = (keys.right + m.right - f) / 2, fy = (m.top + m.bottom - f) / 2;
+	addButton(Common::Rect(fx, fy, fx + f, fy + f), "Fire", kRed, -1, kScanSpace, ' ');
+	_buttons.back().round = true;
+}
+
+// The game's own hunting keys: the arrows turn the rifle a step at a time
+// (held: on round), its keypad points it straight (7 8 9 / 4 6 / 1 2 3),
+// Enter walks or stops
+void TouchPad::classicKeys(const Common::Rect &r) {
+	const int bh = _portrait ? 84 : 64;
+	addButton(Common::Rect(r.left, r.bottom - bh, r.right, r.bottom), "Walk / Stop", kPlain, -1, kScanEnter, 13);
+	const int s = MIN<int>((r.width() - 2 * kGap) / 3, (r.height() - bh - 4 * kGap) / 4);
+	const int x = r.left + (r.width() - 3 * s - 2 * kGap) / 2;
+	int y = r.top + (r.height() - bh - kGap - 4 * s - 3 * kGap) / 2;
+	const int half = (3 * s + kGap) / 2;
+	addArrow(Common::Rect(x, y, x + half, y + s), (float)M_PI, kScanLeft, true);
+	_buttons.back().label = "TurnLeft";
+	addArrow(Common::Rect(x + 3 * s + 2 * kGap - half, y, x + 3 * s + 2 * kGap, y + s), 0, kScanRight, true);
+	_buttons.back().label = "TurnRight";
+	_buttons.back().glyph = kTurn;
+	_buttons[_buttons.size() - 2].glyph = kTurn;
+	y += s + kGap;
+	static const uint8 kScan[9] = { 0x47, 0x48, 0x49, 0x4B, 0, 0x4D, 0x4F, 0x50, 0x51 };
+	static const float kAngle[9] = { -0.75f, -0.5f, -0.25f, 1.0f, 0, 0, 0.75f, 0.5f, 0.25f }; // (times pi)
+	for (int i = 0; i < 9; i++) {
+		if (i == 4)
+			continue; // (the middle: nothing, as on the keypad's 5)
+		const Common::Rect box(x + (i % 3) * (s + kGap), y + (i / 3) * (s + kGap), x + (i % 3) * (s + kGap) + s, y + (i / 3) * (s + kGap) + s);
+		addArrow(box, kAngle[i] * (float)M_PI, kScan[i], false);
 	}
 }
 
@@ -713,10 +733,14 @@ void TouchPad::drawHoldRing(const Common::Rect &r, int radius, float progress) {
 }
 
 void TouchPad::drawPad() {
-	Common::Rect bg = _padBox;
-	bg.grow(8);
-	bg.clip(Common::Rect(_w, _h));
-	_out.fillRect(bg, rgb(10, 10, 14));
+	for (int k = 0; k < 2; k++) {
+		Common::Rect bg = k ? _padBox2 : _padBox;
+		if (bg.isEmpty())
+			continue;
+		bg.grow(8);
+		bg.clip(Common::Rect(_w, _h));
+		_out.fillRect(bg, rgb(10, 10, 14));
+	}
 	const int radius = _portrait ? 18 : 14;
 	for (uint i = 0; i < _buttons.size(); i++) {
 		const Button &b = _buttons[i];
@@ -729,7 +753,16 @@ void TouchPad::drawPad() {
 		}
 		roundRect(b.box, b.round ? MIN(b.box.width(), b.box.height()) / 2 : radius, fill, rgb(200, 200, 210));
 		const int cx = (b.box.left + b.box.right) / 2, cy = (b.box.top + b.box.bottom) / 2;
-		if (b.glyph == kArrow) {
+		if (b.glyph == kTurn) {
+			// turning: a head without a shaft, like the game's own key caps
+			const float sz = MIN(b.box.width(), b.box.height()) * 0.3f;
+			float vx[3], vy[3];
+			const float dir = b.angle == 0 ? 1.0f : -1.0f;
+			vx[0] = cx + dir * sz; vy[0] = cy;
+			vx[1] = cx - dir * sz * 0.6f; vy[1] = cy - sz;
+			vx[2] = cx - dir * sz * 0.6f; vy[2] = cy + sz;
+			polygon(vx, vy, 3, rgb(255, 255, 255));
+		} else if (b.glyph == kArrow) {
 			arrow(cx, cy, MIN(b.box.width(), b.box.height()) * 0.32f, b.angle, rgb(255, 255, 255));
 		} else if (!b.label.empty()) {
 			const bool digit = b.label.size() == 1;
@@ -797,6 +830,8 @@ Common::Rect TouchPad::draw(const byte *screen) {
 		_padDirty = false;
 		drawPad();
 		dirty = _padBox;
+		if (!_padBox2.isEmpty())
+			dirty.extend(_padBox2);
 		dirty.grow(8);
 		any = true;
 	}

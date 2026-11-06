@@ -38,12 +38,16 @@ namespace DosGames {
 
 // Near-Grog: ScummVM's own buttons (touch mode, menu) in the corner, for The
 // Oregon Trail's keys: off unless the tray asks for them
+static bool configOn(const char *key) {
+	return ConfMan.hasKey(key) && ConfMan.getBool(key);
+}
+
 static bool scummvmButtons() {
 	return ConfMan.hasKey("neargrog_scummvm_buttons") && ConfMan.getBool("neargrog_scummvm_buttons");
 }
 
 DosGamesEngine::DosGamesEngine(OSystem *syst, const DosGameDescription *desc) :
-		Engine(syst), _desc(desc), _pc(nullptr), _opl(nullptr), _files(nullptr), _pad(nullptr), _keyboardUp(false), _namesFrames(0), _namesKeyboard(false), _padTicks(0) {
+		Engine(syst), _desc(desc), _pc(nullptr), _opl(nullptr), _files(nullptr), _pad(nullptr), _keyboardUp(false), _namesFrames(0), _namesKeyboard(false), _padTicks(0), _instructionsWait(0) {
 }
 
 DosGamesEngine::~DosGamesEngine() {
@@ -364,6 +368,9 @@ void DosGamesEngine::applyLayout() {
 	int w, h;
 	NearGrog::canvasSize(portrait, w, h);
 	NearGrog::wholeScreen(true);
+	if (g_system->getWidth() == w && g_system->getHeight() == h && g_system->getScreenFormat() == _format &&
+		_pad->output().w == w && _pad->output().h == h)
+		return; // (iOS says the screen changed at every touch: nothing to lay out again, or a touch would be lost)
 	if (g_system->getWidth() != w || g_system->getHeight() != h || g_system->getScreenFormat() != _format)
 		initGraphics(w, h, &_format);
 	_pad->setup(w, h, portrait, _format);
@@ -402,6 +409,26 @@ bool DosGamesEngine::oregonNamesScreen() const {
 	return true;
 }
 
+// The hunting instructions ("Press SPACE BAR to continue"): points of the
+// keypad drawn on it, white keys and the black between
+bool DosGamesEngine::oregonInstructionsScreen() const {
+	static const struct { int16 x, y; bool white; } kPoints[] = {
+		{ 424, 150, true }, { 66, 284, true }, { 62, 266, true }, { 136, 106, true }, { 138, 220, true },
+		{ 162, 286, true }, { 154, 248, true }, { 138, 294, true }, { 164, 278, true }, { 466, 70, true },
+		{ 80, 288, true }, { 438, 22, true }, { 96, 194, false }, { 102, 200, false }, { 72, 186, false },
+		{ 128, 266, false }, { 92, 218, false }, { 94, 230, false }
+	};
+	const byte *pal = _pc->palette();
+	const byte *scr = (const byte *)_screen.getPixels();
+	for (const auto &p : kPoints) {
+		const byte *c = pal + scr[p.y * _screen.pitch + p.x] * 3;
+		const bool white = c[0] > 240 && c[1] > 240 && c[2] > 240, black = c[0] < 16 && c[1] < 16 && c[2] < 16;
+		if (p.white ? !white : !black)
+			return false;
+	}
+	return true;
+}
+
 void DosGamesEngine::runPad() {
 	switch (_pad->tick()) {
 	case TouchPad::kQuickSave: quickSave(); break;
@@ -424,6 +451,11 @@ void DosGamesEngine::runPad() {
 		} else {
 			_namesFrames = 0;
 		}
+	}
+	// The hunting instructions skipped, unless the tray shows them
+	if (_padTicks % 5 == 0 && _padTicks >= _instructionsWait && !configOn("neargrog_hunt_instructions") && oregonInstructionsScreen()) {
+		_pad->typeKey(0x39, ' ');
+		_instructionsWait = _padTicks + 50; // (once: it takes a moment to go)
 	}
 	const bool hunting = oregonHunting();
 	_pad->setHunting(hunting);
@@ -480,10 +512,11 @@ void DosGamesEngine::quickLoad() {
 }
 
 namespace {
-enum { kCmdAim = 'aim ', kCmdButtons = 'btns', kCmdScummVM = 'smvm', kCmdResume = 'resm' };
+enum { kCmdClassic = 'clsc', kCmdInstructions = 'inst', kCmdButtons = 'btns', kCmdScummVM = 'smvm', kCmdResume = 'resm' };
 }
 
-// Menu: Near-Grog's tray - how the rifle is pointed while hunting
+// Menu held: Near-Grog's tray - the hunting controls, its instructions,
+// ScummVM's corner buttons
 void DosGamesEngine::openMainMenuDialog() {
 	if (!_pad) {
 		Engine::openMainMenuDialog();
@@ -495,8 +528,10 @@ void DosGamesEngine::openMainMenuDialog() {
 			PauseToken pause = pauseEngine();
 			Common::Array<Common::String> labels;
 			Common::Array<uint32> cmds;
-			labels.push_back(Common::String::format("Hunting aim: %s", TouchPad::aimName(TouchPad::configAim())));
-			cmds.push_back(kCmdAim);
+			labels.push_back(Common::String::format("Classic hunt controls: %s", configOn("neargrog_hunt_classic") ? "On" : "Off"));
+			cmds.push_back(kCmdClassic);
+			labels.push_back(Common::String::format("Hunting instructions: %s", configOn("neargrog_hunt_instructions") ? "Shown" : "Skipped"));
+			cmds.push_back(kCmdInstructions);
 			labels.push_back(Common::String::format("ScummVM buttons: %s", scummvmButtons() ? "On" : "Off"));
 			cmds.push_back(kCmdButtons);
 			labels.push_back("ScummVM menu");
@@ -506,8 +541,15 @@ void DosGamesEngine::openMainMenuDialog() {
 			NearGrog::TrayPage tray("Near-Grog", labels, cmds);
 			cmd = tray.runModal();
 		}
-		if (cmd == (uint32)kCmdAim) {
-			TouchPad::setConfigAim((TouchPad::Aim)((TouchPad::configAim() + 1) % 4));
+		if (cmd == (uint32)kCmdClassic || cmd == (uint32)kCmdInstructions) {
+			if (cmd == (uint32)kCmdClassic) {
+				// the game's own keys, and with them its instructions screen
+				const bool on = !configOn("neargrog_hunt_classic");
+				ConfMan.setBool("neargrog_hunt_classic", on);
+				ConfMan.setBool("neargrog_hunt_instructions", on);
+			} else {
+				ConfMan.setBool("neargrog_hunt_instructions", !configOn("neargrog_hunt_instructions"));
+			}
 			ConfMan.flushToDisk();
 			_pad->refresh();
 			presentPad();
