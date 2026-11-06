@@ -36,7 +36,7 @@ namespace DosGames {
  * Near-Grog's phone layout for The Oregon Trail, as agreed in the mock-ups:
  * the game's screen (4:3, unstretched) and beside it in landscape, or
  * under it in portrait, the keys the game asks for - Save, Load, Menu, the
- * digits, Yes and No, Delete, Keyboard, Enter and Continue (the space bar).
+ * digits, Yes and No, Delete, Keyboard, Enter and Space.
  * While hunting the keys give way to a hunting pad: Fire, Walk / Stop and
  * Done, with the rifle pointed by turning it (the game's arrow keys) or,
  * the tray's other choice, straight in one of eight directions (its keypad).
@@ -79,8 +79,6 @@ public:
 	Action tick();
 	/** The keys the touches pressed and let go, oldest first. */
 	bool takeKey(Key &k);
-	/** A key typed some other way (a keyboard): what Continue gives next. */
-	void noteKey(uint8 ascii);
 
 	/** The game's screen on the phone, for tests. */
 	const Common::Rect &gameBox() const { return _gameBox; }
@@ -134,7 +132,6 @@ private:
 	void tapKey(uint8 scan, uint8 ascii);
 	void pushKey(uint8 scan, uint8 ascii, bool down);
 	uint32 _lastEmit;
-	int _typed;       // keys typed since the last Enter or space
 	uint8 _heldScan;
 	int _flash;          // a button just touched, shown blue a moment
 	uint32 _flashUntil;
