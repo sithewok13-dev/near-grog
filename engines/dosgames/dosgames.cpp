@@ -37,7 +37,7 @@
 namespace DosGames {
 
 DosGamesEngine::DosGamesEngine(OSystem *syst, const DosGameDescription *desc) :
-		Engine(syst), _desc(desc), _pc(nullptr), _opl(nullptr), _files(nullptr), _pad(nullptr) {
+		Engine(syst), _desc(desc), _pc(nullptr), _opl(nullptr), _files(nullptr), _pad(nullptr), _keyboardUp(false) {
 }
 
 DosGamesEngine::~DosGamesEngine() {
@@ -199,8 +199,15 @@ bool DosGamesEngine::handleEvents() {
 			case TouchPad::kLoadDialog: loadGameDialog(); break;
 			case TouchPad::kTray: openMainMenuDialog(); break;
 			case TouchPad::kKeyboard:
-				if (g_system->hasFeature(OSystem::kFeatureVirtualKeyboard))
-					g_system->setFeatureState(OSystem::kFeatureVirtualKeyboard, !g_system->getFeatureState(OSystem::kFeatureVirtualKeyboard));
+				// open (closed first: iOS can think it's up when it isn't),
+				// or, pressed again, closed
+				if (g_system->hasFeature(OSystem::kFeatureVirtualKeyboard)) {
+					const bool open = !_keyboardUp || !g_system->getFeatureState(OSystem::kFeatureVirtualKeyboard);
+					g_system->setFeatureState(OSystem::kFeatureVirtualKeyboard, false);
+					if (open)
+						g_system->setFeatureState(OSystem::kFeatureVirtualKeyboard, true);
+					_keyboardUp = open;
+				}
 				break;
 			default: break;
 			}

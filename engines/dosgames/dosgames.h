@@ -71,6 +71,7 @@ private:
 	Common::Array<uint16> _oplWrites;
 	// Near-Grog: The Oregon Trail's touch keys
 	TouchPad *_pad;
+	bool _keyboardUp; // (opened by the Keyboard key)
 	Graphics::PixelFormat _format;
 	void applyLayout();
 	bool oregonHunting() const;
